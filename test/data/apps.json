@@ -1,0 +1,20 @@
+{
+  "apps": [
+    { "Id": "app_env", "Name": "EnvTest", "ExePath": "C:\\Windows\\System32\\cmd.exe",
+      "Args": "/c set > \"D:\\fenshen\\test\\out\\env.txt\" 2>&1", "AddedAt": "2026-08-29T00:00:00" },
+    { "Id": "app_reg", "Name": "RegTest", "ExePath": "D:\\fenshen\\dist\\sandbox\\selftest.exe",
+      "Args": "clone2 \"D:\\fenshen\\test\\out\\reg2.txt\"", "AddedAt": "2026-08-29T00:00:00" },
+    { "Id": "app_mutex", "Name": "MutexTest", "ExePath": "D:\\fenshen\\dist\\sandbox\\selftest.exe",
+      "Args": "t \"D:\\fenshen\\test\\out\\mutex.txt\"", "AddedAt": "2026-08-29T00:00:00" },
+    { "Id": "app_dev", "Name": "DeviceTest", "ExePath": "D:\\fenshen\\dist\\sandbox\\selftest.exe",
+      "Args": "d1 \"D:\\fenshen\\test\\out\\device.txt\"", "AddedAt": "2026-08-29T00:00:00" }
+  ],
+  "clones": {
+    "app_env":   [ { "Id": "clone_env", "Name": "分身 1", "DeepIsolation": false, "DeviceClone": false, "CreatedAt": "2026-08-29T00:00:00" } ],
+    "app_reg":   [ { "Id": "clone_reg", "Name": "分身 1", "DeepIsolation": true,  "DeviceClone": false, "CreatedAt": "2026-08-29T00:00:00" } ],
+    "app_mutex": [ { "Id": "clone_m1", "Name": "分身 1", "DeepIsolation": true,  "DeviceClone": false, "CreatedAt": "2026-08-29T00:00:00" },
+                   { "Id": "clone_m2", "Name": "分身 2", "DeepIsolation": true,  "DeviceClone": false, "CreatedAt": "2026-08-29T00:00:00" } ],
+    "app_dev":   [ { "Id": "dev1", "Name": "分身 1", "DeepIsolation": true, "DeviceClone": true, "CreatedAt": "2026-08-29T00:00:00" },
+                   { "Id": "dev2", "Name": "分身 2", "DeepIsolation": true, "DeviceClone": true, "CreatedAt": "2026-08-29T00:00:00" } ]
+  }
+}

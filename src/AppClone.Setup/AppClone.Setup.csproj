@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AssemblyName>AppCloneSetup</AssemblyName>
+    <RootNamespace>AppCloneSetup</RootNamespace>
+    <Version>1.0.0</Version>
+    <Product>应用分身安装程序</Product>
+    <AssemblyTitle>应用分身安装程序</AssemblyTitle>
+    <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
+    <ApplicationIcon>..\..\assets\app.ico</ApplicationIcon>
+    <NoWarn>$(NoWarn);WFO1000;WFO2000</NoWarn>
+    <SatelliteResourceLanguages>zh-Hans</SatelliteResourceLanguages>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="..\Shared\Shortcuts.cs" Link="Shortcuts.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="Payload\payload.zip" LogicalName="payload" />
+  </ItemGroup>
+
+</Project>

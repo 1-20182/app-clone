@@ -1,0 +1,31 @@
+# ===== .NET / C# 编译产物（可重新生成，不入库） =====
+bin/
+obj/
+[Dd]ebug/
+[Rr]elease/
+*.user
+*.suo
+.vs/
+
+# ===== 发行版 / 安装包：单独管理，不进源码仓库 =====
+# 唯一安装包 AppClone-Setup.exe 保留在 dist/ 作为本地发行产物
+/dist/
+
+# ===== 安装器载荷（由 scripts/build.cmd + build_installer.cmd 重新生成） =====
+src/AppClone.Setup/Payload/payload.zip
+
+# ===== 调试符号 =====
+*.pdb
+
+# ===== 原生编译产物（sandbox_dll / C） =====
+*.o
+*.obj
+*.lib
+*.dll
+*.exe
+
+# ===== 测试输出 =====
+test/out/
+
+# ===== 杂项临时文件 =====
+.guipid
