@@ -3,7 +3,7 @@
 > **电脑版应用分身工具：让同一个应用以多个独立身份同时运行——独立账号、独立数据、
 > 独立设备身份，效果对标手机上的"应用分身"。**
 
-[![平台](https://img.shields.io/badge/平台-Windows%2010%2F11-blue)](#) [![运行时](https://img.shields.io/badge/运行时-自包含-green)](#) [![测试](https://img.shields.io/badge/隔离测试-15%2F15%20通过-brightgreen)](#)
+[![平台](https://img.shields.io/badge/平台-Windows%2010%2F11-blue)](#) [![运行时](https://img.shields.io/badge/运行时-自包含-green)](#) [![测试](https://img.shields.io/badge/隔离测试-15%2F15%20通过-brightgreen)](#) [![许可证](https://img.shields.io/badge/许可-学习%2F个人使用-orange)](#)
 
 双击安装程序即可使用；每个分身拥有独立的登录状态、应用数据与"设备身份"，
 像手机一样在电脑上实现一号多开、多号同登。
@@ -28,11 +28,20 @@
 
 ## 功能
 
-- **添加应用**：选择任意 `.exe`，自动提取图标与应用名。
-- **新建分身**：为应用创建任意数量的分身，每个分身独立一套数据。
-- **启动分身**：一键启动；同一应用可以多个分身同时在线。
-- **管理菜单**：打开数据目录 / 创建桌面快捷方式（双击直达该分身）/ 深度隔离开关 /
-  设备分身开关 / 结束进程 / 重置分身数据 / 删除分身。
+- **添加应用**：选择任意 `.exe`，自动提取图标与应用名，无需手动配置。
+- **新建分身**：为同一应用创建任意数量的分身，每个分身拥有完全独立的一套数据目录与设备身份。
+- **启动分身**：一键启动；同一应用的多个分身可同时在线，互不干扰。
+- **管理菜单**：每个分身均可执行——
+  - 打开数据目录（直接查看/备份该分身的文件）
+  - 创建桌面快捷方式（双击直达该分身，免开主程序）
+  - 深度隔离开关 / 设备分身开关（按需增强隔离强度）
+  - 结束进程 / 重置分身数据（换一台"新设备"）/ 删除分身
+
+## 适用场景
+
+- 同一软件的**多账号同时登录**（如多个工作号、游戏小号）。
+- 需要为某应用构造**独立设备指纹**以应对"单设备"类限制。
+- 在**不污染本机真实环境**的前提下试用、隔离运行各类桌面程序。
 
 ## 隔离原理（四层叠加）
 
@@ -47,43 +56,54 @@
 走官方多实例通道。假设备数据在首次启动时生成并持久化——同一分身永远是同一台"设备"，
 删除分身或"重置分身数据"即换一台新"设备"。
 
-## 安装
+## 安装与运行
 
-运行 `dist\AppClone-Setup.exe`（安装向导：选择位置 → 自动创建开始菜单/桌面快捷方式 →
-支持系统"设置-应用"中卸载）。绿色用户也可直接使用 `dist\AppClone.exe` 便携版。
+1. 获取安装程序 `AppClone-Setup.exe`（见下方"构建"一节，由仓库脚本一键生成）。
+2. 双击运行安装向导：选择安装位置 → 自动创建开始菜单 / 桌面快捷方式 →
+   支持在系统"设置 - 应用"中卸载。
+3. 打开「应用分身」，点击 **＋添加应用** 选择目标 `.exe`，再为每个应用 **新建分身** 即可。
+
+> 说明：主仓库为**纯源码仓库**，不提交任何编译产物或安装包二进制。
+> 安装程序 / 便携版由构建脚本从源码生成到本地 `dist/` 目录（该目录已加入 `.gitignore`）。
 
 ## 目录结构
 
 ```
 D:\fenshen\
-├── dist\
-│   ├── AppClone-Setup.exe      安装程序（内嵌全部文件，双击安装）
-│   ├── AppClone.exe            便携版主程序（自包含单文件）
-│   └── sandbox\                深度隔离组件（inject64.dll / inject32.dll）
-├── assets\                     软件图标（icon_gen.py 可重新生成）
+├── .gitignore                  忽略 bin/obj/dist/*.dll/*.exe/*.pdb 等构建产物
+├── dist\                       【本地生成，不进 git】发行产物目录
+│   └── AppClone-Setup.exe      安装程序（内嵌全部文件，由 build_installer.cmd 生成）
+├── assets\                     软件图标源文件（icon_gen.py 可重新生成）
 ├── src\
 │   ├── AppClone\               主程序（C# WinForms / .NET 10）
-│   ├── AppClone.Setup\         安装程序（向导 + 卸载器）
+│   ├── AppClone.Setup\         安装程序（向导 + 卸载器，内嵌 payload）
 │   ├── Shared\Shortcuts.cs     原生 .lnk 快捷方式（IShellLink）
 │   └── sandbox_dll\fenshen.c   沙盒 DLL（注册表隔离 + 多开解锁 + 设备分身）
 ├── scripts\
-│   ├── build.cmd               一键构建（DLL + 主程序）
-│   ├── build_installer.cmd     一键打包安装程序
+│   ├── build.cmd               一键构建（沙盒 DLL + 主程序便携版 → dist\）
+│   ├── build_installer.cmd     一键打包安装程序 → dist\AppClone-Setup.exe
+│   ├── pack_payload.ps1        将主程序与沙盒组件打包为安装器载荷
 │   └── test.sh                 隔离能力自动化测试（15 项断言）
 └── README.md
 ```
 
-## 构建
+## 构建（从源码）
 
-依赖：.NET 10 SDK、Visual Studio 2022（MSVC，用于沙盒 DLL）。
+依赖：
+
+- [.NET 10 SDK](https://dotnet.microsoft.com/download)
+- Visual Studio 2022（含 MSVC 桌面开发负载，用于编译沙盒 DLL）
 
 ```cmd
-scripts\build.cmd              :: 沙盒 DLL + 主程序便携版
-scripts\build_installer.cmd    :: 打包安装程序
-bash scripts\test.sh           :: 隔离能力自动化测试
+scripts\build.cmd              :: 编译沙盒 DLL + 生成主程序便携版 AppClone.exe 到 dist\
+scripts\build_installer.cmd    :: 打包并生成安装程序 dist\AppClone-Setup.exe
+bash scripts\test.sh           :: 运行隔离能力自动化测试
 ```
 
-## 验证结果（scripts/test.sh，15 项断言全部通过）
+完成构建后，`dist\AppClone-Setup.exe` 即为可分发的安装程序；便携版 `dist\AppClone.exe`
+可独立运行，无需安装。
+
+## 验证结果（`scripts/test.sh`，15 项断言全部通过）
 
 - ✅ 环境变量隔离：分身内 `USERPROFILE`/`APPDATA`/`TEMP` 全部指向分身目录
 - ✅ 注册表隔离：分身读写均落在私有键，真实 HKCU 不受污染，跨启动持久化
