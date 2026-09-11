@@ -13,18 +13,18 @@ public class DiscoverForm : Form
     private readonly Store _store;
     private CancellationTokenSource? _cts;
 
-    private readonly FlowLayoutPanel _list = null!;
-    private readonly TextBox _search = null!;
-    private readonly FlowLayoutPanel _cats = null!;
-    private readonly RoundProgressBar _progress = null!;
-    private readonly Label _status = null!;
-    private readonly CheckBox _chkRecommended = null!;
-    private readonly AppleButton _btnSelectAll = null!;
-    private readonly ComboBox _cboClone = null!;
-    private readonly CheckBox _chkShortcut = null!;
-    private readonly AppleButton _btnAdd = null!;
-    private readonly AppleButton _btnRescan = null!;
-    private readonly Label _empty = null!;
+    private FlowLayoutPanel _list = null!;
+    private TextBox _search = null!;
+    private FlowLayoutPanel _cats = null!;
+    private RoundProgressBar _progress = null!;
+    private Label _status = null!;
+    private CheckBox _chkRecommended = null!;
+    private AppleButton _btnSelectAll = null!;
+    private ComboBox _cboClone = null!;
+    private CheckBox _chkShortcut = null!;
+    private AppleButton _btnAdd = null!;
+    private AppleButton _btnRescan = null!;
+    private Label _empty = null!;
 
     private List<DiscoveredApp> _merged = new();
     private List<DiscoveredApp> _filtered = new();
@@ -189,7 +189,7 @@ public class DiscoverForm : Form
         // 底部操作行
         _cboClone = new ComboBox
         {
-            Size = new Size(64, 30), DropDownStyle = ComboStyle.DropDownList, Font = Ui.Font(9.5F),
+            Size = new Size(64, 30), DropDownStyle = ComboBoxStyle.DropDownList, Font = Ui.Font(9.5F),
             Location = new Point(footer.Width - 360, 8),
             Anchor = AnchorStyles.Top | AnchorStyles.Right,
         };

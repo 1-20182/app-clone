@@ -164,7 +164,7 @@ public static class AppClassifier
             d.Category = cat;
             d.Recommended = rec;
             d.Tier = tier;
-            d.AlreadyAdded = !uwp && addedSet.Contains(NormalizeExePath(d.ExePath));
+            d.AlreadyAdded = d.Supported && addedSet.Contains(NormalizeExePath(d.ExePath));
         }
 
         list.Sort((a, b) =>
