@@ -57,7 +57,6 @@ public class Settings
     }
 
     // 便捷访问器（供各处直接读开关）
-    public static bool DisableDiscoveryCache => Current.DisableDiscoveryCache;
     public static bool ScanSteamEnabled => Current.ScanSteam;
     public static bool ScanEpicEnabled => Current.ScanEpic;
     public static bool ScanUwpEnabled => Current.ScanUwp;

@@ -55,7 +55,7 @@ internal static class DiscoveryCacheIO
 
     public static DiscoveryCache? Load()
     {
-        if (Settings.DisableDiscoveryCache) return null;
+        if (Settings.Current.DisableDiscoveryCache) return null;
         try
         {
             if (!File.Exists(Paths.DiscoveryCacheFile)) return null;
@@ -69,7 +69,7 @@ internal static class DiscoveryCacheIO
 
     public static void Save(DiscoveryCache c)
     {
-        if (Settings.DisableDiscoveryCache) return;
+        if (Settings.Current.DisableDiscoveryCache) return;
         lock (_ioLock)
         {
             try
