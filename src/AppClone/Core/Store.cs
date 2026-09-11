@@ -10,6 +10,13 @@ public class AppEntry
     public string ExePath { get; set; } = "";
     public string Args { get; set; } = "";
     public DateTime AddedAt { get; set; } = DateTime.Now;
+
+    // ↓ 增量 1.1.0 新增字段（全部带默认值，老文件反序列化后取默认值，数据不丢）
+    public string Source { get; set; } = "manual";   // manual | uninstall | apppaths | startmenu | steam | epic | uwp
+    public string Publisher { get; set; } = "";
+    public string Version { get; set; } = "";
+    public string Category { get; set; } = "";        // browser | social | game | dev | cloud | office | other | uwp
+    public bool Recommended { get; set; }
 }
 
 public class CloneEntry
@@ -21,6 +28,9 @@ public class CloneEntry
     /// <summary>设备分身：随机设备名 / MachineGuid / 卷序列号等设备指纹。</summary>
     public bool DeviceClone { get; set; } = true;
     public DateTime CreatedAt { get; set; } = DateTime.Now;
+
+    // ↓ 增量 1.1.0：分身角标颜色（空=默认蓝；否则 CloneColors 中的十六进制）
+    public string Color { get; set; } = "";
 }
 
 public class StoreModel
@@ -35,6 +45,7 @@ public class Store
     private static readonly JsonSerializerOptions JsonOpts = new()
     {
         WriteIndented = true,
+        PropertyNameCaseInsensitive = true,
         Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
     };
 
@@ -80,6 +91,16 @@ public class Store
     public CloneEntry? FindClone(string appId, string cloneId) =>
         ClonesOf(appId).FirstOrDefault(c => c.Id == cloneId);
 
+    /// <summary>已添加应用的规范化 exe 路径集合（供发现页去重比对）。</summary>
+    public HashSet<string> AddedExeKeys()
+    {
+        var set = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var a in Model.Apps)
+            if (!string.IsNullOrWhiteSpace(a.ExePath))
+                set.Add(AppClassifier.NormalizeExePath(a.ExePath));
+        return set;
+    }
+
     public AppEntry AddApp(string exePath, string? nameOverride = null)
     {
         var app = new AppEntry
@@ -91,6 +112,58 @@ public class Store
         Model.Clones[app.Id] = new List<CloneEntry>();
         Save();
         return app;
+    }
+
+    /// <summary>从发现结果入库单条应用：写 AppEntry（名称取 DisplayName）、自动建 N 个分身、提取图标。</summary>
+    public (AppEntry App, List<CloneEntry> Clones) AddAppFromDiscovery(DiscoveredApp d, int cloneCount)
+    {
+        var app = new AppEntry
+        {
+            Name = string.IsNullOrWhiteSpace(d.DisplayName)
+                ? (string.IsNullOrWhiteSpace(d.Name) ? Path.GetFileNameWithoutExtension(d.ExePath) : d.Name)
+                : d.DisplayName,
+            ExePath = d.ExePath,
+            Source = d.Source,
+            Publisher = d.Publisher,
+            Version = d.Version,
+            Category = d.Category,
+            Recommended = d.Recommended,
+        };
+        Model.Apps.Add(app);
+        Model.Clones[app.Id] = new List<CloneEntry>();
+
+        var clones = new List<CloneEntry>();
+        int n = Math.Clamp(cloneCount, 1, 9);
+        for (int i = 0; i < n; i++)
+        {
+            var c = new CloneEntry { Name = $"分身 {i + 1}" };
+            Model.Clones[app.Id].Add(c);
+            clones.Add(c);
+        }
+
+        Save();
+        AppIcons.ExtractWithRetry(app.Id, d.ExePath);
+        return (app, clones);
+    }
+
+    /// <summary>批量从发现结果入库，自动跳过已添加的应用。返回新增数量与明细。</summary>
+    public int AddAppsFromDiscovery(IEnumerable<DiscoveredApp> list, int cloneCount,
+        out List<(AppEntry App, List<CloneEntry> Clones)> created)
+    {
+        created = new List<(AppEntry, List<CloneEntry>)>();
+        var existing = AddedExeKeys();
+        int added = 0;
+        foreach (var d in list)
+        {
+            if (d is not { Supported: true } || string.IsNullOrWhiteSpace(d.ExePath)) continue;
+            var key = AppClassifier.NormalizeExePath(d.ExePath);
+            if (string.IsNullOrEmpty(key) || existing.Contains(key)) continue;
+            existing.Add(key);
+            var (app, clones) = AddAppFromDiscovery(d, cloneCount);
+            created.Add((app, clones));
+            added++;
+        }
+        return added;
     }
 
     public void RemoveApp(string appId)

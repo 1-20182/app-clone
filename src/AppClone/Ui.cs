@@ -5,6 +5,7 @@ namespace AppClone;
 /// <summary>
 /// 苹果风格 UI 基建：配色、圆角图形、带动画的按钮与卡片。
 /// 所有交互动画采用逐帧插值（约 60fps 定时器 + 指数趋近），过渡平滑自然。
+/// 增量 1.1.0 新增 RoundProgressBar 与 CloneColors。
 /// </summary>
 internal static class Ui
 {
@@ -78,6 +79,26 @@ internal static class Ui
             ForeColor = color ?? TextPrimary,
             BackColor = Color.Transparent,
         };
+    }
+}
+
+/// <summary>分身角标 6 色调色板（蓝/绿/橙/粉/紫/灰）。CloneEntry.Color 存十六进制串，""=默认蓝。</summary>
+internal static class CloneColors
+{
+    public const string Default = "#0A84FF";
+    public const string Green = "#34C759";
+    public const string Orange = "#FF9500";
+    public const string Pink = "#FF2D55";
+    public const string Purple = "#AF52DE";
+    public const string Gray = "#8E8E93";
+
+    public static readonly string[] All = { Default, Green, Orange, Pink, Purple, Gray };
+
+    public static Color Resolve(string? hex)
+    {
+        if (string.IsNullOrWhiteSpace(hex)) return ColorTranslator.FromHtml(Default);
+        try { return ColorTranslator.FromHtml(hex); }
+        catch { return ColorTranslator.FromHtml(Default); }
     }
 }
 
@@ -174,8 +195,6 @@ internal sealed class AppleButton : Button
 
     protected override void OnPaint(PaintEventArgs e)
     {
-        // 完全自绘，不调用基类（避免系统按钮外观）。
-        // 必须先清空整个客户区：双缓冲缓冲区内容未定义，不清理会出现黑色/花屏方块
         var g = e.Graphics;
         g.SmoothingMode = SmoothingMode.AntiAlias;
         g.TextRenderingHint = System.Drawing.Text.TextRenderingHint.ClearTypeGridFit;
@@ -234,6 +253,54 @@ internal sealed class PillChip : Control
     }
 }
 
+/// <summary>自绘圆角进度条（底色 FillGray、进度 Accent、高 4 圆角 2）+ 状态文案。用于发现页扫描进度。</summary>
+internal sealed class RoundProgressBar : Control
+{
+    private int _maximum = 100;
+    private int _value;
+    private string _status = "";
+    private bool _indeterminate;
+
+    public int Maximum { get => _maximum; set { _maximum = Math.Max(1, value); Invalidate(); } }
+    public int Value { get => _value; set { _value = Math.Clamp(value, 0, _maximum); Invalidate(); } }
+    public string StatusText { get => _status; set { _status = value ?? ""; Invalidate(); } }
+    public bool Indeterminate { get => _indeterminate; set { _indeterminate = value; Invalidate(); } }
+
+    public RoundProgressBar()
+    {
+        Height = 22;
+        SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer
+                 | ControlStyles.UserPaint | ControlStyles.ResizeRedraw, true);
+    }
+
+    public void SetProgress(int value, string text) { Value = value; StatusText = text; }
+
+    protected override void OnPaint(PaintEventArgs e)
+    {
+        var g = e.Graphics;
+        g.SmoothingMode = SmoothingMode.AntiAlias;
+        g.Clear(Parent?.BackColor ?? Ui.Bg);
+
+        int barH = 4, barY = 2;
+        using (var track = Ui.Round(new Rectangle(0, barY, Width - 1, barH), 2))
+        using (var tb = new SolidBrush(Ui.FillGray))
+            g.FillPath(tb, track);
+
+        int pct = _indeterminate ? 55 : (int)(100.0 * _value / _maximum);
+        if (pct > 0)
+        {
+            int w = Math.Max(8, (int)((Width - 2) * pct / 100.0));
+            using var fill = Ui.Round(new Rectangle(0, barY, w, barH), 2);
+            using var fb = new SolidBrush(Ui.Accent);
+            g.FillPath(fb, fill);
+        }
+
+        if (_status.Length > 0)
+            TextRenderer.DrawText(g, _status, Ui.Font(8.5F), new Rectangle(0, barY + barH + 4, Width, 14),
+                Ui.TextSecondary, TextFormatFlags.Left | TextFormatFlags.NoPadding);
+    }
+}
+
 /// <summary>
 /// 苹果风格圆角卡片：白色圆角面板，悬停时背景平滑过渡，可附加描边。
 /// 对子控件做整体悬停跟踪（鼠标进入卡片任意位置即触发）。
@@ -251,7 +318,7 @@ internal sealed class AppleCard : Panel
     public bool DrawBorder { get; set; } = true;
     public bool Shadow { get; set; } = true;
     public Color? AccentBar { get; set; }              // 左侧强调条（如运行中状态）
-    public Func<Color>? BackColorOverride;             // 选中态等外部控制
+    public Func<Color>? BackColorOverride { get; set; } // 选中态等外部控制
 
     public AppleCard()
     {
@@ -268,7 +335,6 @@ internal sealed class AppleCard : Panel
         c.MouseEnter += (_, _) => { _tracked = true; StartAnim(); };
         c.MouseLeave += (_, _) =>
         {
-            // 鼠标可能只是移动到子控件，延迟一帧确认真正离开
             BeginInvoke(new Action(() =>
             {
                 if (!ClientRectangle.Contains(PointToClient(Cursor.Position)))
@@ -339,7 +405,6 @@ internal sealed class AppleCard : Panel
 
         var rect = new Rectangle(0, 0, Width - 1, Height - 1);
 
-        // 多层内嵌软阴影（自阴影不越界，层叠列表不受影响）
         if (Shadow)
         {
             for (int i = 3; i >= 1; i--)

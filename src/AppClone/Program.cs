@@ -7,6 +7,13 @@ internal static class Program
     [STAThread]
     private static int Main(string[] args)
     {
+        // 卸载/一键还原强制规则（R7）：恢复被接管的桌面快捷方式
+        if (args.Length >= 1 && string.Equals(args[0], "--restore-all-rules", StringComparison.OrdinalIgnoreCase))
+        {
+            AutoLaunchRule.RestoreAll();
+            return 0;
+        }
+
         // 命令行模式：--launch <appId> <cloneId>  （供桌面快捷方式直接启动分身）
         if (args.Length >= 3 && string.Equals(args[0], "--launch", StringComparison.OrdinalIgnoreCase))
         {

@@ -1,0 +1,84 @@
+%% 场景①：打开发现页 → 读缓存 → 后台扫描 → 分批回填 → 勾选 → 批量添加 → 批量建分身/快捷方式
+sequenceDiagram
+    actor User
+    participant MF as MainForm
+    participant DF as DiscoverForm
+    participant Cache as DiscoveryCacheIO
+    participant Disc as AppDiscovery
+    participant Cls as AppClassifier
+    participant Store as Store
+    participant Icons as AppIcons
+
+    User->>MF: 点「＋ 添加应用 ▾ → 从本机已装应用添加」
+    MF->>DF: ShowDialog(store)
+    DF->>Cache: Load()
+    alt 缓存命中且指纹未变
+        Cache-->>DF: DiscoveryCache (≤0.3s)
+        DF->>Cls: Merge(cache.Apps, 已添加集合)
+        DF-->>User: 立即显示列表(缓存)
+    else 无/过期缓存
+        DF-->>User: 空态 + 进度条
+    end
+    DF->>Disc: ScanAsync(ct, progress) [Task.Run 后台]
+    par S1 注册表 Uninstall(主力,优先返回)
+        Disc->>Disc: RegEnumKey 三键 ≤300ms
+    and S2 App Paths + S3 开始菜单.lnk(并发)
+        Disc->>Disc: 解析 .lnk (复用 Shortcuts 思路)
+    end
+    Disc->>Cls: 逐批(20条/100ms) Classify+Merge+去重
+    Cls-->>DF: 规范化+分类+推荐标签
+    DF-->)User: BeginInvoke 分批回填卡片 (UI 0 阻塞)
+    Disc-->>DF: DiscoveryResult(含超源状态)
+    DF->>Cache: Save(结果+指纹)
+    Note over DF: 用户勾选(默认勾「推荐分身」) + 设分身数 N + 是否建快捷方式
+    User->>DF: 点「添加所选(N)」
+    DF->>Store: AddAppFromDiscovery(d, N, makeShortcut) ×N
+    loop 每个选中应用
+        Store->>Store: 写 AppEntry(Name=DisplayName) + N×CloneEntry
+        Store->>Icons: Extract(id, exe, 32) [Task.Run 并发]
+        opt 建快捷方式
+            Store->>MF: CreateShortcut(app, clone) [复用 NativeLink]
+        end
+    end
+    Store-->>MF: Save()
+    MF->>MF: RefreshAppList() 即时刷新左侧
+    DF-->>User: 关闭，状态栏「已添加 N 个应用」
+
+%% 场景②：主界面冷启动性能改造（P-1/P-2/P-7）
+sequenceDiagram
+    participant App as Application.Run
+    participant MF as MainForm(构造)
+    participant Store as Store.Load
+    participant Icons as AppIcons(缓存)
+    participant Disc as AppDiscovery
+
+    App->>MF: new MainForm()
+    MF->>Store: Load() [同步 <50ms]
+    MF->>MF: RefreshAppList() 仅渲染可见项
+    loop 每个可见 AppCard
+        MF->>Icons: GetCached(id) [内存命中 0 IO]
+        alt 未命中
+            Icons->>Icons: LoadAsync → 后台 Extract 仅更新该卡(不整表重建)
+        end
+    end
+    MF->>MF: 启动 _timer(1500ms)；_pulse 仅当有运行分身才起
+    MF-->>App: 首帧 ≤1.5s
+    Note over MF: 空闲(0 运行分身)时 _timer 暂停/降频 5000ms；发现页扫描不进启动路径
+
+%% 场景③：运行状态轮询改造（P-3 空闲暂停）
+sequenceDiagram
+    participant TM as _timer(1500ms)
+    participant MF as MainForm.UpdateRunningStates
+    participant L as Launcher.IsRunning
+    participant PL as _pulse(60ms)
+
+    TM->>MF: Tick
+    MF->>L: IsRunning(app,clone) ×N
+    L-->>MF: Job活跃数/主进程/命令行标记(缓存10s,仅失败走)
+    alt 有运行分身
+        MF->>MF: 更新 dot/state 文案
+        MF->>PL: 启动 _pulse 呼吸动画
+    else 0 个运行分身
+        MF->>TM: 暂停 _timer 或降频(5000ms)
+        MF->>PL: 停止 _pulse
+    end

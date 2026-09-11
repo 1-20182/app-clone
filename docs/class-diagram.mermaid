@@ -1,0 +1,148 @@
+classDiagram
+    direction LR
+
+    class AppEntry {
+        +string Id
+        +string Name
+        +string ExePath
+        +string Args
+        +DateTime AddedAt
+        +string Source
+        +string Publisher
+        +string Version
+        +string Category
+        +bool Recommended
+    }
+    class CloneEntry {
+        +string Id
+        +string Name
+        +bool DeepIsolation
+        +bool DeviceClone
+        +DateTime CreatedAt
+        +string Color
+    }
+    class StoreModel {
+        +List~AppEntry~ Apps
+        +Dictionary~string,List~CloneEntry~~ Clones
+    }
+    class Store {
+        +StoreModel Model
+        +static Store Load()
+        +void Save()
+        +AppEntry AddApp(exe, nameOverride)
+        +AppEntry AddAppFromDiscovery(d, cloneCount, makeShortcut)
+        +void RemoveApp(id)
+        +CloneEntry AddClone(id)
+    }
+
+    class DiscoveredApp {
+        +string Name
+        +string ExePath
+        +string DisplayName
+        +string Publisher
+        +string Version
+        +string InstallLocation
+        +string IconPath
+        +string Source
+        +string Category
+        +bool Recommended
+        +bool Supported
+        +DateTime FoundAt
+    }
+    class DiscoveryCache {
+        +int SchemaVersion_
+        +DateTime ScannedAt
+        +string MachineId
+        +Dictionary~string,SourceStamp~ Stamps
+        +List~DiscoveredApp~ Apps
+    }
+    class SourceStamp {
+        +int KeyCount
+        +long LastWrite
+    }
+
+    class AppDiscovery {
+        +static Task~DiscoveryResult~ ScanAsync(ct, progress, opt)
+        -Task ScanUninstall(ct)
+        -Task ScanAppPaths(ct)
+        -Task ScanStartMenu(ct)
+        -Task ScanSteam(ct)
+        -Task ScanEpic(ct)
+        -Task ScanUwp(ct)
+    }
+    class DiscoveryResult {
+        +List~DiscoveredApp~ Apps
+        +Dictionary~string,SourceState~ Status
+    }
+    class AppClassifier {
+        +static string NormalizeExePath(p)
+        +static string NormalizeName(n)
+        +static List~DiscoveredApp~ Merge(raw, addedSet)
+        +static (Category,Recommended,Tier) Classify(d)
+    }
+    class DiscoveryCacheIO {
+        +static DiscoveryCache Load()
+        +static void Save(cache)
+        +static bool NeedsRescan(cache)
+    }
+    class LaunchRules {
+        +static List~LaunchRule~ BuiltIn
+        +static string Resolve(exePath, udata, ffprofile)
+    }
+    class LaunchRule {
+        +string Id
+        +string Family
+        +List~string~ Match
+        +List~string~ MatchContains
+        +string Args
+    }
+
+    class DiscoverForm {
+        -Store _store
+        -CancellationTokenSource _cts
+        +void Rescan()
+        +int AddSelected(picked, cloneCount, makeShortcut)
+    }
+    class MainForm {
+        +void OpenDiscover()
+        +void RefreshAppList()
+        +void UpdateRunningStates()
+        +void CreateShortcut(app, clone)
+    }
+    class AppIcons {
+        +static Image GetCached(id)
+        +static void LoadAsync(id, cb)
+        +static bool Extract(id, exe, size)
+    }
+    class Launcher {
+        +LaunchOutcome Launch(store, app, clone)
+    }
+    class CloneColors {
+        +const string Default
+        +const string Green
+        +const string Orange
+        +const string Pink
+        +const string Purple
+        +const string Gray
+        +static Color Resolve(hex)
+    }
+
+    Store "1" *-- "1" StoreModel
+    StoreModel "1" *-- "*" AppEntry
+    StoreModel "1" *-- "*" CloneEntry
+    DiscoveryCache "1" *-- "*" DiscoveredApp
+    DiscoveryCache "1" *-- "*" SourceStamp
+    AppDiscovery ..> DiscoveryResult : produces
+    AppClassifier ..> DiscoveredApp : merges/classifies
+    DiscoveryCacheIO ..> DiscoveryCache : read/write
+    LaunchRules "1" *-- "*" LaunchRule
+    Launcher ..> LaunchRules : Resolve
+    DiscoverForm ..> AppDiscovery : calls
+    DiscoverForm ..> AppClassifier : uses
+    DiscoverForm ..> DiscoveryCacheIO : cache
+    DiscoverForm ..> Store : AddAppFromDiscovery
+    MainForm ..> DiscoverForm : opens
+    MainForm ..> Store : uses
+    MainForm ..> AppIcons : icons
+    MainForm ..> CloneColors : color
+    Store ..> AppIcons : extract

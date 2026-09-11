@@ -1,8 +1,11 @@
+using System.IO;
+
 namespace AppClone.Core;
 
 /// <summary>
 /// 集中管理所有数据目录的定位。
 /// 默认可移植布局：exe 同目录下 data\；可用环境变量 FENSHEN_DATA_DIR 覆盖（用于测试）。
+/// 增量 1.1.0 新增：cache / snapshots 目录与若干文件访问器（不改变既有行为）。
 /// </summary>
 public static class Paths
 {
@@ -15,6 +18,14 @@ public static class Paths
     public static string IconsDir => Path.Combine(DataRoot, "icons");
     public static string ProfilesDir => Path.Combine(DataRoot, "profiles");
     public static string SandboxDir => Path.Combine(AppContext.BaseDirectory, "sandbox");
+
+    // —— 增量 1.1.0 新增目录 / 文件访问器（不影响既有项）——
+    public static string CacheDir => Path.Combine(DataRoot, "cache");
+    public static string SnapshotsDir => Path.Combine(DataRoot, "snapshots");
+    public static string LaunchRulesFile => Path.Combine(DataRoot, "launch_rules.json");
+    public static string CategoriesFile => Path.Combine(DataRoot, "categories.json");
+    public static string SettingsFile => Path.Combine(DataRoot, "settings.json");
+    public static string DiscoveryCacheFile => Path.Combine(CacheDir, "discovered.json");
 
     public static string AppProfileDir(string appId) => Path.Combine(ProfilesDir, appId);
     public static string CloneDir(string appId, string cloneId) => Path.Combine(AppProfileDir(appId), cloneId);
@@ -32,5 +43,7 @@ public static class Paths
         Directory.CreateDirectory(IconsDir);
         Directory.CreateDirectory(ProfilesDir);
         Directory.CreateDirectory(SandboxDir);
+        Directory.CreateDirectory(CacheDir);
+        Directory.CreateDirectory(SnapshotsDir);
     }
 }

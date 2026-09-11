@@ -16,11 +16,8 @@ public record LaunchOutcome(bool Ok, string Message, uint Pid)
 ///
 /// 隔离手段（叠加生效）：
 /// 1. 环境变量重定向 —— USERPROFILE / APPDATA / LOCALAPPDATA / TEMP / HOME 全部指向分身目录；
-///   绝大多数应用（Electron / Chromium / Firefox / 主流 IM）的登录数据与运行数据都落在这里。
-/// 2. 深度隔离 —— 注入 sandbox DLL：
-///    a) RegOverridePredefKey 将 HKCU 重定向到分身私有键（登录凭据、配置项隔离）；
-///    b) IAT Hook 改名命名互斥体/信号量，绕过单实例限制，实现真正多开。
-/// 3. 浏览器内核应用自动附加 --user-data-dir / -profile，走官方多实例通道。
+/// 2. 深度隔离 —— 注入 sandbox DLL（注册表重定向 + 互斥体改名）；
+/// 3. 浏览器内核应用自动附加 --user-data-dir / -profile（规则表 LaunchRules，R9）。
 /// </summary>
 public static class Launcher
 {
@@ -48,16 +45,17 @@ public static class Launcher
             if (r.AppId != appId || r.CloneId != cloneId) continue;
 
             // 1) Job 跟踪（进程未脱离时最准确）
-            if (r.Job != IntPtr.Zero && JobActiveCount(r.Job) > 0) return true;
-
+            bool jobActive = r.Job != IntPtr.Zero && JobActiveCount(r.Job) > 0;
             // 2) 主进程存活
-            try { if (r.Process != null && !r.Process.HasExited) return true; } catch { }
+            bool mainAlive = false;
+            try { if (r.Process != null && !r.Process.HasExited) mainAlive = true; } catch { }
 
-            // 3) 命令行兜底：浏览器类应用会把控制权交给脱离 Job 的后台进程，
-            //    但其命令行仍带有分身目录标记（--user-data-dir / -profile 等）
+            if (jobActive || mainAlive) return true;
+
+            // 3) 命令行兜底：仅当 Job 与主进程均判定失败时走（P-3），结果缓存 10s
             if (r.ExeName.Length > 0 && r.MarkerPath.Length > 0)
             {
-                if ((DateTime.Now - r.MarkerCheckAt).TotalSeconds > 5)
+                if ((DateTime.Now - r.MarkerCheckAt).TotalSeconds > 10)
                 {
                     r.MarkerCheckAt = DateTime.Now;
                     r.MarkerFound = ScanCommandLineMarker(r.ExeName, r.MarkerPath);
@@ -105,7 +103,6 @@ public static class Launcher
             ["TMP"] = Paths.CloneTemp(app.Id, clone.Id),
             ["FENSHEN_CLONE"] = $"{app.Name}:{clone.Name}",
         };
-        // HOME 主要影响从 Unix 移植的应用（git/node 等）
         env["HOME"] = home;
 
         // 4. 深度隔离标记（DLL 据此执行注册表重定向与互斥体改名）
@@ -124,7 +121,7 @@ public static class Launcher
             env["COMPUTERNAME"] = deviceName;
         }
 
-        // 5. 应用类型自适应参数（官方多实例通道）
+        // 5. 应用类型自适应参数（规则表 R9，替代硬编码 BuildAutoArgs）
         string extraArgs = BuildAutoArgs(app, clone);
         string args = CombineArgs(app.Args, extraArgs);
 
@@ -149,7 +146,6 @@ public static class Launcher
                     try { injected = Injector.InjectDll(lp.Process, dll); }
                     catch (Exception ex)
                     {
-                        // 注入失败不应影响分身启动：降级并继续
                         injected = false;
                         warn = string.IsNullOrEmpty(warn)
                             ? $"深度隔离组件注入失败（{ex.Message}），已降级为标准隔离"
@@ -165,7 +161,6 @@ public static class Launcher
         }
         catch (Exception ex)
         {
-            // 启动流程中途失败：清掉挂起的子进程，避免残留僵尸
             try { Injector.Terminate(lp.Process); } catch { }
             return LaunchOutcome.Fail(ex.Message);
         }
@@ -176,9 +171,7 @@ public static class Launcher
 
             var rec = new RunningClone
             {
-                AppId = app.Id,
-                CloneId = clone.Id,
-                Pid = lp.Pid,
+                AppId = app.Id, CloneId = clone.Id, Pid = lp.Pid,
                 ExeName = Path.GetFileNameWithoutExtension(app.ExePath),
                 MarkerPath = Paths.CloneDir(app.Id, clone.Id),
             };
@@ -223,7 +216,6 @@ public static class Launcher
 
     private const int JobObjectBasicAccountingInformation = 1;
 
-    /// <summary>把分身主进程纳入跟踪 Job（不设 kill 限制，仅用于运行状态统计）。</summary>
     private static IntPtr CreateTrackingJob(IntPtr hProcess)
     {
         try
@@ -239,8 +231,7 @@ public static class Launcher
     private static int JobActiveCount(IntPtr job)
     {
         if (QueryInformationJobObject(job, JobObjectBasicAccountingInformation,
-                out var info, System.Runtime.InteropServices.Marshal.SizeOf<JOBOBJECT_BASIC_ACCOUNTING_INFORMATION>(),
-                out _))
+                out var info, Marshal.SizeOf<JOBOBJECT_BASIC_ACCOUNTING_INFORMATION>(), out _))
             return (int)info.ActiveProcesses;
         return 0;
     }
@@ -274,7 +265,6 @@ public static class Launcher
     private const uint PROCESS_QUERY_LIMITED_INFORMATION = 0x1000;
     private const uint PROCESS_VM_READ = 0x0010;
 
-    /// <summary>读取目标进程的完整命令行（经 PEB，同用户进程无需特权）。</summary>
     private static string? ReadProcessCommandLine(int pid)
     {
         IntPtr h = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_VM_READ, false, pid);
@@ -282,13 +272,12 @@ public static class Launcher
         try
         {
             if (NtQueryInformationProcess(h, 0, out var pbi,
-                    System.Runtime.InteropServices.Marshal.SizeOf<PROCESS_BASIC_INFORMATION>(), out _) != 0)
+                    Marshal.SizeOf<PROCESS_BASIC_INFORMATION>(), out _) != 0)
                 return null;
             if (pbi.PebBaseAddress == IntPtr.Zero) return null;
 
             bool wow64 = false;
             try { IsWow64Process(h, out wow64); } catch { }
-            // x64: PEB+0x20=ProcessParameters, 参数块+0x70=CommandLine；x86: 0x10 / 0x40
             IntPtr ppOffset = wow64 ? (IntPtr)0x10 : (IntPtr)0x20;
             IntPtr cmdOffset = wow64 ? (IntPtr)0x40 : (IntPtr)0x70;
             int ptrSize = wow64 ? 4 : 8;
@@ -298,12 +287,8 @@ public static class Launcher
 
             var us = new byte[ptrSize == 8 ? 16 : 12];
             if (!ReadProcessMemory(h, pp + cmdOffset, us, us.Length)) return null;
-            int len = wow64
-                ? BitConverter.ToUInt16(us, 0)
-                : BitConverter.ToUInt16(us, 0);
-            IntPtr strPtr = wow64
-                ? new IntPtr(BitConverter.ToInt32(us, 4))
-                : (IntPtr)BitConverter.ToInt64(us, 8);
+            int len = wow64 ? BitConverter.ToUInt16(us, 0) : BitConverter.ToUInt16(us, 0);
+            IntPtr strPtr = wow64 ? new IntPtr(BitConverter.ToInt32(us, 4)) : (IntPtr)BitConverter.ToInt64(us, 8);
             if (len <= 0 || strPtr == IntPtr.Zero) return null;
 
             var data = new byte[len];
@@ -325,7 +310,6 @@ public static class Launcher
         return true;
     }
 
-    /// <summary>检查指定映像名进程中是否有命令行包含分身目录标记的（5 秒内共享缓存结果放调用方）。</summary>
     private static bool ScanCommandLineMarker(string exeName, string marker)
     {
         try
@@ -345,7 +329,6 @@ public static class Launcher
         return false;
     }
 
-    /// <summary>结束分身主进程（不追溯子进程树）。</summary>
     public static bool Stop(string appId, string cloneId)
     {
         var rec = _running.FirstOrDefault(r => r.AppId == appId && r.CloneId == cloneId);
@@ -369,20 +352,9 @@ public static class Launcher
         return File.Exists(p) ? p : null;
     }
 
-    private static string BuildAutoArgs(AppEntry app, CloneEntry clone)
-    {
-        var name = Path.GetFileName(app.ExePath).ToLowerInvariant();
-        var appId = app.Id; var cloneId = clone.Id;
-
-        if (name is "chrome.exe" or "msedge.exe" or "brave.exe" or "opera.exe" or "vivaldi.exe"
-            or "chromium.exe" or "dragon.exe" or "360se.exe")
-            return $"--user-data-dir=\"{Paths.CloneUData(appId, cloneId)}\" --no-first-run";
-
-        if (name == "firefox.exe")
-            return $"-profile \"{Paths.CloneFFProfile(appId, cloneId)}\" -no-remote";
-
-        return "";
-    }
+    /// <summary>R9：以规则表替代硬编码（行为与原 8 种 Chromium+Firefox 完全一致）。</summary>
+    private static string BuildAutoArgs(AppEntry app, CloneEntry clone) =>
+        LaunchRules.Resolve(app.ExePath, Paths.CloneUData(app.Id, clone.Id), Paths.CloneFFProfile(app.Id, clone.Id));
 
     private static string CombineArgs(string a, string b)
     {
