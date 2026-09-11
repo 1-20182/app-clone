@@ -1,15 +1,19 @@
 using System.Drawing.Drawing2D;
+using AppClone.Core;
 
 namespace AppClone;
 
 /// <summary>
 /// 苹果风格 UI 基建：配色、圆角图形、带动画的按钮与卡片。
 /// 所有交互动画采用逐帧插值（约 60fps 定时器 + 指数趋近），过渡平滑自然。
-/// 增量 1.1.0 新增 RoundProgressBar 与 CloneColors。
+/// 增量 1.1.0 新增：RoundProgressBar、CloneColors、深色主题（Ui.Theme + 主题感知访问器）。
+///
+/// 主题约束（共享知识 14）：所有控件填充与 Parent.BackColor 必须走 Ui.*Of() 主题访问器，
+/// 禁止硬编码浅色常量 Ui.Bg / Ui.Card 等（否则深色主题会漏）。
 /// </summary>
 internal static class Ui
 {
-    // ---- Apple 系统色板 ----
+    // ---- Apple 浅色系统色板（Light 基准值，UI.*Of() 在浅色时返回这些）----
     public static readonly Color Bg = ColorTranslator.FromHtml("#F5F5F7");       // 苹果浅灰背景
     public static readonly Color Card = Color.White;
     public static readonly Color Accent = ColorTranslator.FromHtml("#0A84FF");   // systemBlue
@@ -25,7 +29,75 @@ internal static class Ui
     public static readonly Color FillGray = ColorTranslator.FromHtml("#E9E9EB"); // 次级按钮
     public static readonly Color FillGrayHover = ColorTranslator.FromHtml("#DCDCE1");
 
+    // ---- 深色色板（T18：Ui.Theme = Dark 时由访问器返回）----
+    public static readonly Color DarkBg = ColorTranslator.FromHtml("#1C1C1E");
+    public static readonly Color DarkCard = ColorTranslator.FromHtml("#2C2C2E");
+    public static readonly Color DarkTextPrimary = ColorTranslator.FromHtml("#F5F5F7");
+    public static readonly Color DarkTextSecondary = ColorTranslator.FromHtml("#98989D");
+    public static readonly Color DarkBorder = ColorTranslator.FromHtml("#38383A");
+    public static readonly Color DarkFillGray = ColorTranslator.FromHtml("#3A3A3C");
+    public static readonly Color DarkFillGrayHover = ColorTranslator.FromHtml("#48484A");
+    public static readonly Color DarkOk = ColorTranslator.FromHtml("#30D158");
+    public static readonly Color DarkDanger = ColorTranslator.FromHtml("#FF453A");
+    public static readonly Color DarkAccentLight = ColorTranslator.FromHtml("#0A3A66");
+    public static readonly Color DarkChipPurple = ColorTranslator.FromHtml("#2A1F3D");
+    public static readonly Color DarkChipPurpleText = ColorTranslator.FromHtml("#BF5AF2");
+    // 注：Accent / AccentDark 深浅主题一致（systemBlue 在深色背景同样清晰），不单独定义深色副本。
+
+    // ---- 主题选择器：桥接 AppTheme 与 ThemeManager（共享知识 14）----
+    public static AppTheme Theme
+    {
+        get => ThemeManager.Current == Theme.Dark ? AppTheme.Dark : AppTheme.Light;
+        set => ThemeManager.Set(value == AppTheme.Dark ? Theme.Dark : Theme.Light);
+    }
+
+    /// <summary>主题感知访问器：统一委托 ThemeManager.Color（单一来源，保证全应用配色一致）。</summary>
+    public static Color BgOf() => ThemeManager.Color(ThemeRole.Bg);
+    public static Color CardOf() => ThemeManager.Color(ThemeRole.Card);
+    public static Color TextPrimaryOf() => ThemeManager.Color(ThemeRole.TextPrimary);
+    public static Color TextSecondaryOf() => ThemeManager.Color(ThemeRole.TextSecondary);
+    public static Color BorderOf() => ThemeManager.Color(ThemeRole.Border);
+    public static Color FillGrayOf() => ThemeManager.Color(ThemeRole.FillGray);
+    public static Color FillGrayHoverOf() => ThemeManager.Color(ThemeRole.FillGrayHover);
+    public static Color OkOf() => ThemeManager.Color(ThemeRole.Ok);
+    public static Color DangerOf() => ThemeManager.Color(ThemeRole.Danger);
+    public static Color AccentLightOf() => ThemeManager.Color(ThemeRole.AccentLight);
+    public static Color ChipPurpleOf() => ThemeManager.Color(ThemeRole.ChipPurple);
+    public static Color ChipPurpleTextOf() => ThemeManager.Color(ThemeRole.ChipPurpleText);
+    /// <summary>悬停微亮色（随主题切换）。</summary>
+    public static Color HoverTintOf() =>
+        Theme == AppTheme.Dark ? ColorTranslator.FromHtml("#3A3A3C") : ColorTranslator.FromHtml("#EEF1F6");
+
     public const string FontName = "Microsoft YaHei UI";
+
+    // —— 字体层级（增量 1.2.0）：统一字号，避免散落魔法数 ——
+    public const float FTitle = 16F;
+    public const float FSub = 13F;
+    public const float FSection = 12F;
+    public const float FCardTitle = 10.5F;
+    public const float FBody = 9.5F;
+    public const float FCaption = 8.5F;
+    public const float FChip = 8F;
+
+    /// <summary>按当前主题取颜色（统一入口，禁止新增代码硬编码浅色常量）。</summary>
+    public static Color ThemedColor(ThemeRole role) => ThemeManager.Color(role);
+
+    /// <summary>
+    /// 递归应用主题：重设非自绘控件底色并触发重绘。
+    /// 自绘控件（AppleButton/PillChip/RoundProgressBar/AppleCard）自行处理，这里跳过其底色。
+    /// </summary>
+    public static void ApplyTheme(Control root)
+    {
+        if (root is null) return;
+        bool selfDrawn = root is AppleButton or PillChip or RoundProgressBar or AppleCard;
+        if (!selfDrawn)
+        {
+            try { root.BackColor = ThemedColor(ThemeRole.Bg); } catch { }
+        }
+        try { root.Invalidate(); } catch { }
+        foreach (Control child in root.Controls)
+            ApplyTheme(child);
+    }
 
     public static Font Font(float size, bool bold = false) =>
         new(FontName, size, bold ? FontStyle.Bold : FontStyle.Regular);
@@ -68,7 +140,7 @@ internal static class Ui
     [System.Runtime.InteropServices.DllImport("dwmapi.dll")]
     private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int value, int size);
 
-    /// <summary>标准文字标签。</summary>
+    /// <summary>标准文字标签（主题感知前景色）。</summary>
     public static Label Label(string text, float size = 9.5F, bool bold = false, Color? color = null)
     {
         return new Label
@@ -76,7 +148,7 @@ internal static class Ui
             Text = text,
             AutoSize = true,
             Font = Font(size, bold),
-            ForeColor = color ?? TextPrimary,
+            ForeColor = color ?? TextPrimaryOf(),
             BackColor = Color.Transparent,
         };
     }
@@ -133,36 +205,37 @@ internal sealed class AppleButton : Button
         Cursor = Cursors.Hand;
         TabStop = false;
         UseVisualStyleBackColor = false;
+        ThemeManager.ThemeChanged += () => Invalidate();
     }
 
     private Color CurrentFill()
     {
         Color a = _style switch
         {
-            Style.Filled => Ui.Accent,
-            Style.Secondary => Ui.FillGray,
+            Style.Filled => Ui.ThemedColor(ThemeRole.Accent),
+            Style.Secondary => Ui.ThemedColor(ThemeRole.FillGray),
             _ => Color.Transparent,
         };
         Color b = _style switch
         {
-            Style.Filled => Ui.AccentDark,
-            Style.Secondary => Ui.FillGrayHover,
+            Style.Filled => Ui.ThemedColor(ThemeRole.AccentDark),
+            Style.Secondary => Ui.ThemedColor(ThemeRole.FillGrayHover),
             _ => Color.FromArgb(15, 0, 0, 0),
         };
         var c = Ui.Lerp(a, b, _hover);
         if (_style == Style.Ghost)
-            c = Color.FromArgb((int)(20 * _hover), Ui.Accent);
+            c = Color.FromArgb((int)(20 * _hover), Ui.ThemedColor(ThemeRole.Accent));
         return Ui.Lerp(c, _style == Style.Filled ? ColorTranslator.FromHtml("#005BB8") : ColorTranslator.FromHtml("#C9C9CF"), _press);
     }
 
     private Color CurrentText()
     {
-        if (!Enabled) return _style == Style.Filled ? Color.White : Ui.TextSecondary;
+        if (!Enabled) return _style == Style.Filled ? Color.White : Ui.ThemedColor(ThemeRole.TextSecondary);
         return _style switch
         {
             Style.Filled => Color.White,
-            Style.Secondary => Ui.TextPrimary,
-            _ => Ui.Accent,
+            Style.Secondary => Ui.ThemedColor(ThemeRole.TextPrimary),
+            _ => Ui.ThemedColor(ThemeRole.Accent),
         };
     }
 
@@ -198,7 +271,7 @@ internal sealed class AppleButton : Button
         var g = e.Graphics;
         g.SmoothingMode = SmoothingMode.AntiAlias;
         g.TextRenderingHint = System.Drawing.Text.TextRenderingHint.ClearTypeGridFit;
-        g.Clear(Parent?.BackColor ?? Ui.Bg);
+        g.Clear(Parent?.BackColor ?? Ui.ThemedColor(ThemeRole.Bg));
 
         int radius = Radius >= 0 ? Radius : Height / 2;
         using var path = Ui.Round(new Rectangle(0, 0, Width - 1, Height - 1), radius);
@@ -232,6 +305,7 @@ internal sealed class PillChip : Control
         using var g = CreateGraphics();
         var size = TextRenderer.MeasureText(text, Font);
         Size = new Size(size.Width + 18, 22);
+        ThemeManager.ThemeChanged += () => Invalidate();
     }
 
     protected override void OnPaint(PaintEventArgs e)
@@ -239,7 +313,7 @@ internal sealed class PillChip : Control
         var g = e.Graphics;
         g.SmoothingMode = SmoothingMode.AntiAlias;
         g.TextRenderingHint = System.Drawing.Text.TextRenderingHint.ClearTypeGridFit;
-        g.Clear(Parent?.BackColor ?? Ui.Card);
+        g.Clear(Parent?.BackColor ?? Ui.ThemedColor(ThemeRole.Card));
 
         using var path = Ui.Round(new Rectangle(0, 0, Width - 1, Height - 1), Height / 2);
         using (var b = new SolidBrush(_fill))
@@ -271,6 +345,7 @@ internal sealed class RoundProgressBar : Control
         Height = 22;
         SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer
                  | ControlStyles.UserPaint | ControlStyles.ResizeRedraw, true);
+        ThemeManager.ThemeChanged += () => Invalidate();
     }
 
     public void SetProgress(int value, string text) { Value = value; StatusText = text; }
@@ -279,11 +354,11 @@ internal sealed class RoundProgressBar : Control
     {
         var g = e.Graphics;
         g.SmoothingMode = SmoothingMode.AntiAlias;
-        g.Clear(Parent?.BackColor ?? Ui.Bg);
+        g.Clear(Parent?.BackColor ?? Ui.ThemedColor(ThemeRole.Bg));
 
         int barH = 4, barY = 2;
         using (var track = Ui.Round(new Rectangle(0, barY, Width - 1, barH), 2))
-        using (var tb = new SolidBrush(Ui.FillGray))
+        using (var tb = new SolidBrush(Ui.ThemedColor(ThemeRole.FillGray)))
             g.FillPath(tb, track);
 
         int pct = _indeterminate ? 55 : (int)(100.0 * _value / _maximum);
@@ -291,13 +366,13 @@ internal sealed class RoundProgressBar : Control
         {
             int w = Math.Max(8, (int)((Width - 2) * pct / 100.0));
             using var fill = Ui.Round(new Rectangle(0, barY, w, barH), 2);
-            using var fb = new SolidBrush(Ui.Accent);
+            using var fb = new SolidBrush(Ui.ThemedColor(ThemeRole.Accent));
             g.FillPath(fb, fill);
         }
 
         if (_status.Length > 0)
-            TextRenderer.DrawText(g, _status, Ui.Font(8.5F), new Rectangle(0, barY + barH + 4, Width, 14),
-                Ui.TextSecondary, TextFormatFlags.Left | TextFormatFlags.NoPadding);
+            TextRenderer.DrawText(g, _status, Ui.Font(Ui.FCaption), new Rectangle(0, barY + barH + 4, Width, 14),
+                Ui.ThemedColor(ThemeRole.TextSecondary), TextFormatFlags.Left | TextFormatFlags.NoPadding);
     }
 }
 
@@ -309,7 +384,6 @@ internal sealed class AppleCard : Panel
 {
     private float _hover;
     private bool _tracked;
-    private Color _hoverTint = Color.FromArgb(246, 246, 248);
     private bool _animateHover = true;
     private static readonly System.Windows.Forms.Timer _clock = new() { Interval = 16 };
     private static readonly List<AppleCard> _animating = new();
@@ -324,11 +398,9 @@ internal sealed class AppleCard : Panel
     {
         SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer
                  | ControlStyles.UserPaint | ControlStyles.ResizeRedraw, true);
-        BackColor = Ui.Card;
+        BackColor = Ui.ThemedColor(ThemeRole.Card);
+        ThemeManager.ThemeChanged += () => Invalidate();
     }
-
-    public void SetHoverTint(Color c) => _hoverTint = c;
-    public void DisableHoverAnimation() => _animateHover = false;
 
     private void HookHover(Control c)
     {
@@ -374,8 +446,8 @@ internal sealed class AppleCard : Panel
 
     private Color CurrentBack()
     {
-        Color b = BackColorOverride?.Invoke() ?? Ui.Card;
-        return _animateHover ? Ui.Lerp(b, _hoverTint, _hover * 0.9f) : b;
+        Color b = BackColorOverride?.Invoke() ?? Ui.ThemedColor(ThemeRole.Card);
+        return _animateHover ? Ui.Lerp(b, Ui.HoverTintOf(), _hover * 0.9f) : b;
     }
 
     private void TickFrame()
@@ -401,7 +473,7 @@ internal sealed class AppleCard : Panel
     {
         var g = e.Graphics;
         g.SmoothingMode = SmoothingMode.AntiAlias;
-        g.Clear(Parent?.BackColor ?? Ui.Bg);
+        g.Clear(Parent?.BackColor ?? Ui.ThemedColor(ThemeRole.Bg));
 
         var rect = new Rectangle(0, 0, Width - 1, Height - 1);
 
@@ -420,14 +492,14 @@ internal sealed class AppleCard : Panel
         using (var b = new SolidBrush(CurrentBack()))
             g.FillPath(b, path);
         if (DrawBorder)
-            using (var p = new Pen(Ui.Border, 1f))
+            using (var p = new Pen(Ui.ThemedColor(ThemeRole.Border), 1f))
                 g.DrawPath(p, path);
 
-        if (AccentBar is Color bar)
+        if (AccentBar.HasValue)
         {
             using var bp = Ui.Round(new Rectangle(0, 0, Width - 1, Height - 1), Radius);
             g.SetClip(bp);
-            using var b = new SolidBrush(bar);
+            using var b = new SolidBrush(Ui.ThemedColor(ThemeRole.Ok));
             g.FillRectangle(b, 0, 8, 4, Height - 16);
             g.ResetClip();
         }

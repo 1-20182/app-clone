@@ -36,17 +36,20 @@ public class MainForm : Form
     private readonly System.Windows.Forms.Timer _pulse;
     private float _pulsePhase;
     private bool _reallyClosing;
+    private AppTheme _appliedTheme = AppTheme.Light;
 
     public MainForm()
     {
         _store = Store.Load();
         Settings.Load();
+        Ui.Theme = Settings.Current.Theme;        // T18：按设置应用主题
+        _appliedTheme = Settings.Current.Theme;
 
         Text = "应用分身";
         StartPosition = FormStartPosition.CenterScreen;
         Size = new Size(1120, 740);
         MinimumSize = new Size(960, 640);
-        BackColor = Ui.Bg;
+        BackColor = Ui.BgOf();
         Font = Ui.Font(9.5F);
         Icon = TryAppIcon();
 
@@ -95,7 +98,7 @@ public class MainForm : Form
 
     private void BuildTopBar()
     {
-        var top = new Panel { Dock = DockStyle.Top, Height = 68, BackColor = Ui.Bg };
+        var top = new Panel { Dock = DockStyle.Top, Height = 68, BackColor = Ui.BgOf() };
         top.Paint += (_, e) =>
         {
             using var b = new LinearGradientBrush(
@@ -113,17 +116,22 @@ public class MainForm : Form
         var title = new Label
         {
             Text = "应用分身", AutoSize = true, Font = Ui.Font(14F, true),
-            ForeColor = Ui.TextPrimary, BackColor = Color.Transparent, Location = new Point(60, 13),
+            ForeColor = Ui.TextPrimaryOf(), BackColor = Color.Transparent, Location = new Point(60, 13),
         };
         var sub = new Label
         {
             Text = "数据隔离 · 沙盒多开", AutoSize = true, Font = Ui.Font(8F),
-            ForeColor = Ui.TextSecondary, BackColor = Color.Transparent, Location = new Point(62, 40),
+            ForeColor = Ui.TextSecondaryOf(), BackColor = Color.Transparent, Location = new Point(62, 40),
         };
 
         var btnData = new AppleButton("打开数据目录", AppleButton.Style.Secondary, 9F)
         { Size = new Size(112, 34), Anchor = AnchorStyles.Top | AnchorStyles.Right };
         btnData.Click += (_, _) => OpenFolder(Paths.DataRoot);
+
+        // 设置入口（T17）
+        var btnSettings = new AppleButton("设置", AppleButton.Style.Secondary, 9F)
+        { Size = new Size(84, 34), Anchor = AnchorStyles.Top | AnchorStyles.Right };
+        btnSettings.Click += (_, _) => OpenSettings();
 
         // 「＋ 添加应用」改为下拉：从本机已装应用添加（推荐）/ 手动选择 exe
         var btnAdd = new AppleButton("＋ 添加应用 ▾", AppleButton.Style.Filled)
@@ -142,14 +150,17 @@ public class MainForm : Form
         top.Controls.Add(sub);
         top.Controls.Add(btnData);
         top.Controls.Add(btnAdd);
+        top.Controls.Add(btnSettings);
         top.Resize += (_, _) =>
         {
-            btnAdd.Location = new Point(top.Width - 140 - 24, 17);
-            btnData.Location = new Point(top.Width - 140 - 112 - 12 - 24, 17);
+            btnSettings.Location = new Point(top.Width - 84 - 24, 17);
+            btnAdd.Location = new Point(top.Width - 84 - 12 - 140 - 24, 17);
+            btnData.Location = new Point(top.Width - 84 - 12 - 140 - 12 - 112 - 24, 17);
         };
         top.Controls.Add(new Panel());
-        btnAdd.Location = new Point(top.Width - 140 - 24, 17);
-        btnData.Location = new Point(top.Width - 140 - 112 - 12 - 24, 17);
+        btnSettings.Location = new Point(top.Width - 84 - 24, 17);
+        btnAdd.Location = new Point(top.Width - 84 - 12 - 140 - 24, 17);
+        btnData.Location = new Point(top.Width - 84 - 12 - 140 - 12 - 112 - 24, 17);
 
         Controls.Add(top);
         top.BringToFront();
@@ -157,9 +168,9 @@ public class MainForm : Form
 
     private void BuildSidebar()
     {
-        var sidebar = new Panel { Dock = DockStyle.Left, Width = 272, BackColor = Ui.Bg };
+        var sidebar = new Panel { Dock = DockStyle.Left, Width = 272, BackColor = Ui.BgOf() };
 
-        var cap = Ui.Label("我的应用", 9F, true, Ui.TextSecondary);
+        var cap = Ui.Label("我的应用", 9F, true, Ui.TextSecondaryOf());
         cap.Location = new Point(20, 16);
         sidebar.Controls.Add(cap);
 
@@ -168,14 +179,14 @@ public class MainForm : Form
             Location = new Point(12, 44),
             Size = new Size(sidebar.Width - 24, sidebar.Height - 56),
             Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right,
-            FlowDirection = FlowDirection.TopDown, WrapContents = false, BackColor = Ui.Bg, Padding = new Padding(0),
+            FlowDirection = FlowDirection.TopDown, WrapContents = false, BackColor = Ui.BgOf(), Padding = new Padding(0),
         };
         sidebar.Controls.Add(_appFlow);
 
         _appEmpty = new Label
         {
             Text = "还没有应用\n\n点击右上角「添加应用」\n选择「从本机已安装应用添加」\n30 秒即可开始多开",
-            Font = Ui.Font(9.5F), ForeColor = Ui.TextSecondary, BackColor = Color.Transparent,
+            Font = Ui.Font(9.5F), ForeColor = Ui.TextSecondaryOf(), BackColor = Color.Transparent,
             Size = new Size(sidebar.Width - 40, 160), Location = new Point(20, 100), TextAlign = ContentAlignment.TopLeft,
         };
         sidebar.Controls.Add(_appEmpty);
@@ -192,20 +203,20 @@ public class MainForm : Form
 
     private void BuildRightPane()
     {
-        var right = new Panel { Dock = DockStyle.Fill, BackColor = Ui.Bg, Padding = new Padding(16, 12, 20, 8) };
+        var right = new Panel { Dock = DockStyle.Fill, BackColor = Ui.BgOf(), Padding = new Padding(16, 12, 20, 8) };
 
         _rightPlaceholder = new Label
         {
             Text = "←  选择左侧应用，管理它的分身", Font = Ui.Font(12F),
-            ForeColor = Ui.TextSecondary, BackColor = Color.Transparent, AutoSize = true,
+            ForeColor = Ui.TextSecondaryOf(), BackColor = Color.Transparent, AutoSize = true,
         };
         _rightPlaceholder.Location = new Point(40, 70);
 
         _rightIcon = new PictureBox { Size = new Size(52, 52), SizeMode = PictureBoxSizeMode.Zoom, Location = new Point(12, 10) };
-        _rightTitle = new Label { AutoSize = true, Font = Ui.Font(15F, true), ForeColor = Ui.TextPrimary, BackColor = Color.Transparent, Location = new Point(78, 8) };
+        _rightTitle = new Label { AutoSize = true, Font = Ui.Font(15F, true), ForeColor = Ui.TextPrimaryOf(), BackColor = Color.Transparent, Location = new Point(78, 8) };
         _rightPath = new Label
         {
-            AutoSize = false, Font = Ui.Font(8.5F), ForeColor = Ui.TextSecondary, BackColor = Color.Transparent,
+            AutoSize = false, Font = Ui.Font(8.5F), ForeColor = Ui.TextSecondaryOf(), BackColor = Color.Transparent,
             Location = new Point(80, 40), AutoEllipsis = true, Size = new Size(560, 20),
             Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
         };
@@ -218,7 +229,7 @@ public class MainForm : Form
         { Size = new Size(96, 36), Anchor = AnchorStyles.Top | AnchorStyles.Right };
         _btnEndAll.Click += (_, _) => EndAllClones();
 
-        var header = new Panel { Dock = DockStyle.Top, Height = 68, BackColor = Ui.Bg };
+        var header = new Panel { Dock = DockStyle.Top, Height = 68, BackColor = Ui.BgOf() };
         header.Controls.Add(_rightIcon);
         header.Controls.Add(_rightTitle);
         header.Controls.Add(_rightPath);
@@ -233,14 +244,14 @@ public class MainForm : Form
         _cloneFlow = new FlowLayoutPanel
         {
             Dock = DockStyle.Fill, FlowDirection = FlowDirection.TopDown, WrapContents = false,
-            AutoScroll = true, BackColor = Ui.Bg, Padding = new Padding(0, 8, 0, 0),
+            AutoScroll = true, BackColor = Ui.BgOf(), Padding = new Padding(0, 8, 0, 0),
         };
         _cloneFlow.Resize += (_, _) => StretchCloneCards();
 
         _cloneEmpty = new Label
         {
             Text = "该应用还没有分身\n\n点击右上角「＋ 新建分身」创建", Font = Ui.Font(10F),
-            ForeColor = Ui.TextSecondary, BackColor = Color.Transparent, AutoSize = false,
+            ForeColor = Ui.TextSecondaryOf(), BackColor = Color.Transparent, AutoSize = false,
             Size = new Size(400, 100), Location = new Point(24, 40),
         };
 
@@ -255,10 +266,10 @@ public class MainForm : Form
 
     private void BuildStatusBar()
     {
-        var status = new Panel { Dock = DockStyle.Bottom, Height = 34, BackColor = Ui.Bg };
+        var status = new Panel { Dock = DockStyle.Bottom, Height = 34, BackColor = Ui.BgOf() };
         _statusText = new Label
         {
-            Text = "就绪", Font = Ui.Font(8.5F), ForeColor = Ui.TextSecondary,
+            Text = "就绪", Font = Ui.Font(8.5F), ForeColor = Ui.TextSecondaryOf(),
             BackColor = Color.Transparent, AutoSize = true, Location = new Point(24, 9),
         };
         status.Controls.Add(_statusText);
@@ -287,6 +298,40 @@ public class MainForm : Form
             SelectApp(_store.Model.Apps[0].Id);
         else
             RefreshRightPane();
+    }
+
+    private void OpenSettings()
+    {
+        using var sf = new SettingsForm();
+        if (sf.ShowDialog(this) == DialogResult.OK)
+        {
+            if (Settings.Current.Theme != _appliedTheme)
+                BeginInvoke(new Action(ApplyTheme));   // 延后到当前消息循环结束后重建，避免释放正在处理事件的控件
+            else
+                SetStatus("设置已保存");
+        }
+        RefreshAppList();
+        if (_selectedAppId != null) RefreshRightPane();
+    }
+
+    /// <summary>T18：主题变更后重新应用 Ui.Theme 并重建主界面布局（全树重绘）。</summary>
+    private void ApplyTheme()
+    {
+        _appliedTheme = Settings.Current.Theme;
+        Ui.Theme = Settings.Current.Theme;
+        RebuildLayout();
+        SetStatus($"主题：{(Settings.Current.Theme == AppTheme.Dark ? "深色" : "浅色")}");
+    }
+
+    private void RebuildLayout()
+    {
+        while (Controls.Count > 0) { var c = Controls[0]; Controls.RemoveAt(0); c.Dispose(); }
+        BuildTopBar();
+        BuildSidebar();
+        BuildRightPane();
+        BuildStatusBar();
+        if (_selectedAppId != null) SelectApp(_selectedAppId); else RefreshRightPane();
+        RefreshAppList();
     }
 
     private async void AddAppFlow()
@@ -348,10 +393,9 @@ public class MainForm : Form
         var card = new AppleCard
         {
             Width = 240, Height = 66, Margin = new Padding(4, 4, 4, 4),
-            Cursor = Cursors.Hand, Radius = 13, BackColor = Ui.Card, DrawBorder = true,
+            Cursor = Cursors.Hand, Radius = 13, BackColor = Ui.CardOf(), DrawBorder = true,
         };
-        card.BackColorOverride = () => app.Id == _selectedAppId ? Ui.AccentLight : Ui.Card;
-        card.SetHoverTint(Color.FromArgb(238, 241, 246));
+        card.BackColorOverride = () => app.Id == _selectedAppId ? Ui.AccentLightOf() : Ui.CardOf();
         if (selected) card.DisableHoverAnimation();
 
         var icon = new PictureBox
@@ -372,18 +416,18 @@ public class MainForm : Form
         var name = new Label
         {
             Text = app.Name, AutoSize = true, Font = Ui.Font(10F, true),
-            ForeColor = Ui.TextPrimary, BackColor = Color.Transparent, Location = new Point(64, 13),
+            ForeColor = Ui.TextPrimaryOf(), BackColor = Color.Transparent, Location = new Point(64, 13),
         };
         var count = new Label
         {
             Text = CountText(app), AutoSize = true, Font = Ui.Font(8.5F),
-            ForeColor = Ui.TextSecondary, BackColor = Color.Transparent, Location = new Point(66, 38),
+            ForeColor = Ui.TextSecondaryOf(), BackColor = Color.Transparent, Location = new Point(66, 38),
         };
         count.Paint += (_, e) =>
         {
             int running = _store.ClonesOf(app.Id).Count(c => Launcher.IsRunning(app.Id, c.Id));
             if (running > 0)
-                using (var b = new SolidBrush(Ui.Ok))
+                using (var b = new SolidBrush(Ui.OkOf()))
                     e.Graphics.DrawString($" · {running} 运行中", count.Font, b, count.Width + 2, 0);
         };
         _appCountLabels.Add((app.Id, count));
@@ -400,7 +444,7 @@ public class MainForm : Form
 
         var menu = new ContextMenuStrip { Font = Ui.Font(9.5F) };
         menu.Items.Add("打开程序所在目录", null, (_, _) => OpenFolder(Path.GetDirectoryName(app.ExePath) ?? ""));
-        var remove = new ToolStripMenuItem("移除应用（连同全部分身数据）") { ForeColor = Ui.Danger };
+        var remove = new ToolStripMenuItem("移除应用（连同全部分身数据）") { ForeColor = Ui.DangerOf() };
         remove.Click += (_, _) =>
         {
             if (MessageBox.Show(this, $"确定移除「{app.Name}」吗？\n该应用的全部分身数据与登录状态将被永久删除。",
@@ -493,7 +537,7 @@ public class MainForm : Form
         var card = new AppleCard
         {
             Width = 620, Height = 92, Margin = new Padding(2, 7, 2, 7), Radius = 16,
-            BackColor = Ui.Card, DrawBorder = true, Shadow = true, AccentBar = running ? Ui.Ok : null,
+            BackColor = Ui.CardOf(), DrawBorder = true, Shadow = true, AccentBar = running ? Ui.OkOf() : null,
         };
 
         // 分身头像：渐变圆 + 序号；非运行时用 CloneColors 角标色（R8）
@@ -524,33 +568,33 @@ public class MainForm : Form
         var name = new Label
         {
             Text = clone.Name, AutoSize = true, Font = Ui.Font(10.5F, true),
-            ForeColor = Ui.TextPrimary, BackColor = Color.Transparent, Location = new Point(72, 16),
+            ForeColor = Ui.TextPrimaryOf(), BackColor = Color.Transparent, Location = new Point(72, 16),
         };
 
         var dot = new Label
         {
             Text = "●", AutoSize = true, Font = new Font("Segoe UI", 10F),
-            ForeColor = running ? Ui.Ok : Color.FromArgb(210, 210, 215), Location = new Point(74, 50), BackColor = Color.Transparent, Tag = running,
+            ForeColor = running ? Ui.OkOf() : Color.FromArgb(210, 210, 215), Location = new Point(74, 50), BackColor = Color.Transparent, Tag = running,
         };
         var state = new Label
         {
             Text = running ? "运行中" : "未运行", AutoSize = true, Font = Ui.Font(8.5F),
-            ForeColor = running ? Ui.Ok : Ui.TextSecondary, Location = new Point(90, 51), BackColor = Color.Transparent,
+            ForeColor = running ? Ui.OkOf() : Ui.TextSecondaryOf(), Location = new Point(90, 51), BackColor = Color.Transparent,
         };
 
         int chipX = 150;
         card.Controls.Add(new PillChip(clone.DeepIsolation ? "深度隔离" : "标准隔离",
-            clone.DeepIsolation ? Ui.AccentLight : Color.FromArgb(243, 244, 246),
-            clone.DeepIsolation ? Ui.Accent : Ui.TextSecondary)
+            clone.DeepIsolation ? Ui.AccentLightOf() : Color.FromArgb(243, 244, 246),
+            clone.DeepIsolation ? Ui.Accent : Ui.TextSecondaryOf())
         { Location = new Point(chipX, 49) });
         if (clone.DeviceClone)
-            card.Controls.Add(new PillChip("设备分身", Ui.ChipPurple, Ui.ChipPurpleText)
+            card.Controls.Add(new PillChip("设备分身", Ui.ChipPurpleOf(), Ui.ChipPurpleTextOf())
             { Location = new Point(chipX + 76, 49) });
 
         var created = new Label
         {
             Text = $"创建于 {clone.CreatedAt:yyyy-MM-dd}", AutoSize = true, Font = Ui.Font(8F),
-            ForeColor = Ui.TextSecondary, BackColor = Color.Transparent, Location = new Point(chipX + (clone.DeviceClone ? 158 : 84), 51),
+            ForeColor = Ui.TextSecondaryOf(), BackColor = Color.Transparent, Location = new Point(chipX + (clone.DeviceClone ? 158 : 84), 51),
         };
 
         var btnLaunch = new AppleButton(running ? "再次启动" : "启 动", AppleButton.Style.Filled) { Size = new Size(96, 36) };
@@ -584,7 +628,7 @@ public class MainForm : Form
             bool r = Launcher.IsRunning(appId, cloneId);
             if (r) running++;
             text.Text = r ? "运行中" : "未运行";
-            text.ForeColor = r ? Ui.Ok : Ui.TextSecondary;
+            text.ForeColor = r ? Ui.OkOf() : Ui.TextSecondaryOf();
             text.Tag = r;
         }
         foreach (var (_, count) in _appCountLabels) count.Invalidate();
@@ -610,7 +654,7 @@ public class MainForm : Form
         {
             if (dot.Tag is true)
             {
-                var baseColor = Ui.Ok;
+                var baseColor = Ui.OkOf();
                 var lit = Color.FromArgb(120, 205, 130);
                 dot.ForeColor = Ui.Lerp(baseColor, lit, k * 0.55f);
                 card.AccentBar = Ui.Lerp(baseColor, lit, k * 0.45f);
@@ -724,7 +768,7 @@ public class MainForm : Form
             RefreshRightPane();
         };
 
-        var del = new ToolStripMenuItem("删除分身") { ForeColor = Ui.Danger };
+        var del = new ToolStripMenuItem("删除分身") { ForeColor = Ui.DangerOf() };
         del.Click += (_, _) =>
         {
             if (MessageBox.Show(this, $"确定删除「{clone.Name}」吗？\n该分身的全部数据将被永久删除。",
@@ -778,7 +822,7 @@ public class MainForm : Form
         var dlg = new Form
         {
             Width = 360, Height = 160, Text = "重命名分身", StartPosition = FormStartPosition.CenterParent,
-            BackColor = Ui.Bg, Font = Ui.Font(9.5F),
+            BackColor = Ui.BgOf(), Font = Ui.Font(9.5F),
         };
         var tb = new TextBox { Text = current, Location = new Point(20, 30), Width = 320, Font = Ui.Font(10F) };
         var ok = new AppleButton("确定", AppleButton.Style.Filled) { Size = new Size(96, 34), Location = new Point(160, 92) };

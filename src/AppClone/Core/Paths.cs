@@ -25,6 +25,7 @@ public static class Paths
     public static string LaunchRulesFile => Path.Combine(DataRoot, "launch_rules.json");
     public static string CategoriesFile => Path.Combine(DataRoot, "categories.json");
     public static string SettingsFile => Path.Combine(DataRoot, "settings.json");
+    public static string StatsFile => Path.Combine(DataRoot, "stats.json");
     public static string DiscoveryCacheFile => Path.Combine(CacheDir, "discovered.json");
 
     public static string AppProfileDir(string appId) => Path.Combine(ProfilesDir, appId);

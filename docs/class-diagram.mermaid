@@ -127,7 +127,33 @@ classDiagram
         +static Color Resolve(hex)
     }
 
+    class Settings {
+        +AppTheme Theme
+        +bool EnableDiscoveryCache
+        +bool ScanSteam
+        +bool ScanEpic
+        +bool ScanUwp
+        +bool ScanWinget
+        +IsolationMode DefaultIsolationMode
+        +bool DefaultDeviceClone
+        +int DefaultCloneCount
+        +bool LaunchOnStartup
+        +CloseBehavior CloseBehavior
+        +bool MinimizeToTray
+        +bool ConfirmDestructive
+        +static Settings Current
+        +static Settings Load()
+        +void Save()
+    }
+    class SettingsForm {
+        +void ApplyTheme()
+    }
+
     Store "1" *-- "1" StoreModel
+    MainForm ..> Settings : read/write
+    DiscoverForm ..> Settings : theme/options
+    SettingsForm ..> Settings : edit
+    SettingsForm ..> MainForm : open
     StoreModel "1" *-- "*" AppEntry
     StoreModel "1" *-- "*" CloneEntry
     DiscoveryCache "1" *-- "*" DiscoveredApp

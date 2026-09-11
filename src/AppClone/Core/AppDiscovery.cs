@@ -44,7 +44,7 @@ public static class AppDiscovery
         IProgress<ScanProgress>? progress = null,
         DiscoveryOptions? opt = null)
     {
-        opt ??= new DiscoveryOptions();
+        opt ??= Settings.Current.ToDiscoveryOptions();
         var result = new DiscoveryResult();
 
         var sources = new List<(string Name, bool Uwp, Func<CancellationToken, Task<List<DiscoveredApp>>>)>

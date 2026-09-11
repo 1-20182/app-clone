@@ -43,7 +43,7 @@ public class DiscoverForm : Form
         Size = new Size(900, 640);
         MinimumSize = new Size(760, 520);
         StartPosition = FormStartPosition.CenterParent;
-        BackColor = Ui.Bg;
+        BackColor = Ui.BgOf();
         Font = Ui.Font(9.5F);
         Icon = MainForm.TryAppIcon();
 
@@ -61,7 +61,7 @@ public class DiscoverForm : Form
 
     private void BuildHeader()
     {
-        var top = new Panel { Dock = DockStyle.Top, Height = 52, BackColor = Ui.Bg };
+        var top = new Panel { Dock = DockStyle.Top, Height = 52, BackColor = Ui.BgOf() };
         top.Paint += (_, e) =>
         {
             using var b = new System.Drawing.Drawing2D.LinearGradientBrush(
@@ -69,7 +69,7 @@ public class DiscoverForm : Form
                 Color.FromArgb(70, Ui.Accent), Color.FromArgb(70, ColorTranslator.FromHtml("#5E5CE6")), 0F);
             e.Graphics.FillRectangle(b, 0, top.Height - 2, top.Width, 2);
         };
-        var title = Ui.Label("发现本机已安装的应用", 13F, true, Ui.TextPrimary);
+        var title = Ui.Label("发现本机已安装的应用", 13F, true, Ui.TextPrimaryOf());
         title.Location = new Point(22, 12);
         _btnRescan = new AppleButton("⟳ 重新扫描", AppleButton.Style.Secondary, 9F)
         { Size = new Size(110, 32), Anchor = AnchorStyles.Top | AnchorStyles.Right };
@@ -85,7 +85,7 @@ public class DiscoverForm : Form
 
     private void BuildToolbar()
     {
-        var bar = new Panel { Dock = DockStyle.Top, Height = 92, BackColor = Ui.Bg };
+        var bar = new Panel { Dock = DockStyle.Top, Height = 92, BackColor = Ui.BgOf() };
 
         _search = new TextBox
         {
@@ -94,10 +94,10 @@ public class DiscoverForm : Form
             Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
             Font = Ui.Font(10F),
             Text = "搜索应用名称或发布者…",
-            ForeColor = Ui.TextSecondary,
+            ForeColor = Ui.TextSecondaryOf(),
         };
-        _search.GotFocus += (_, _) => { if (_search.Text == "搜索应用名称或发布者…") { _search.Text = ""; _search.ForeColor = Ui.TextPrimary; } };
-        _search.LostFocus += (_, _) => { if (_search.Text.Length == 0) { _search.Text = "搜索应用名称或发布者…"; _search.ForeColor = Ui.TextSecondary; } };
+        _search.GotFocus += (_, _) => { if (_search.Text == "搜索应用名称或发布者…") { _search.Text = ""; _search.ForeColor = Ui.TextPrimaryOf(); } };
+        _search.LostFocus += (_, _) => { if (_search.Text.Length == 0) { _search.Text = "搜索应用名称或发布者…"; _search.ForeColor = Ui.TextSecondaryOf(); } };
         _search.TextChanged += (_, _) => { if (_search.Text != "搜索应用名称或发布者…") _searchTimer.Stop(); _searchTimer.Start(); };
 
         _cats = new FlowLayoutPanel
@@ -107,7 +107,7 @@ public class DiscoverForm : Form
             Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
             FlowDirection = FlowDirection.LeftToRight,
             WrapContents = false,
-            BackColor = Ui.Bg,
+            BackColor = Ui.BgOf(),
         };
         foreach (var c in new[] { "全部", "浏览器", "社交聊天", "游戏", "开发工具", "云盘", "其它" })
             _cats.Controls.Add(MakeCatChip(c));
@@ -122,8 +122,8 @@ public class DiscoverForm : Form
     {
         bool on = name == _category;
         var chip = new PillChip(name,
-            on ? Ui.AccentLight : Ui.FillGray,
-            on ? Ui.AccentDark : Ui.TextSecondary)
+            on ? Ui.AccentLightOf() : Ui.FillGrayOf(),
+            on ? Ui.AccentDark : Ui.TextSecondaryOf())
         { Margin = new Padding(0, 0, 8, 0) };
         chip.Click += (_, _) => { _category = name; RefreshCatChips(); ApplyFilter(); };
         return chip;
@@ -136,7 +136,7 @@ public class DiscoverForm : Form
             {
                 bool on = chip.Text == _category;
                 // 重建配色
-                var fresh = new PillChip(chip.Text, on ? Ui.AccentLight : Ui.FillGray, on ? Ui.AccentDark : Ui.TextSecondary)
+                var fresh = new PillChip(chip.Text, on ? Ui.AccentLightOf() : Ui.FillGrayOf(), on ? Ui.AccentDark : Ui.TextSecondaryOf())
                 { Margin = chip.Margin, Location = chip.Location };
                 var idx = _cats.Controls.GetChildIndex(chip);
                 _cats.Controls.Remove(chip);
@@ -154,7 +154,7 @@ public class DiscoverForm : Form
             FlowDirection = FlowDirection.TopDown,
             WrapContents = false,
             AutoScroll = true,
-            BackColor = Ui.Bg,
+            BackColor = Ui.BgOf(),
             Padding = new Padding(12, 10, 12, 10),
         };
         Controls.Add(_list);
@@ -162,12 +162,12 @@ public class DiscoverForm : Form
 
     private void BuildFooter()
     {
-        var footer = new Panel { Dock = DockStyle.Bottom, Height = 96, BackColor = Ui.Bg };
+        var footer = new Panel { Dock = DockStyle.Bottom, Height = 96, BackColor = Ui.BgOf() };
 
         _chkRecommended = new CheckBox
         {
             Text = "仅显示「推荐分身」", AutoSize = true, Font = Ui.Font(9F),
-            ForeColor = Ui.TextPrimary, Location = new Point(24, 12),
+            ForeColor = Ui.TextPrimaryOf(), Location = new Point(24, 12),
         };
         _chkRecommended.CheckedChanged += (_, _) => ApplyFilter();
 
@@ -183,7 +183,7 @@ public class DiscoverForm : Form
             Indeterminate = true,
             StatusText = "正在扫描本机已安装应用…",
         };
-        _status = Ui.Label("已选 0 项", 9F, false, Ui.TextSecondary);
+        _status = Ui.Label("已选 0 项", 9F, false, Ui.TextSecondaryOf());
         _status.Location = new Point(24, 70);
 
         // 底部操作行
@@ -194,16 +194,16 @@ public class DiscoverForm : Form
             Anchor = AnchorStyles.Top | AnchorStyles.Right,
         };
         _cboClone.Items.AddRange(new object[] { "1", "2", "3" });
-        _cboClone.SelectedIndex = 0;
+        _cboClone.SelectedIndex = Math.Clamp(Settings.Current.DefaultCloneCount, 1, 3) - 1;
 
-        var lblClone = Ui.Label("为每个应用创建分身：", 9F, false, Ui.TextSecondary);
+        var lblClone = Ui.Label("为每个应用创建分身：", 9F, false, Ui.TextSecondaryOf());
         lblClone.Location = new Point(footer.Width - 432, 14);
         lblClone.Anchor = AnchorStyles.Top | AnchorStyles.Right;
 
         _chkShortcut = new CheckBox
         {
             Text = "同时生成桌面快捷方式", AutoSize = true, Font = Ui.Font(9F),
-            ForeColor = Ui.TextPrimary, Location = new Point(footer.Width - 200, 14),
+            ForeColor = Ui.TextPrimaryOf(), Location = new Point(footer.Width - 200, 14),
             Anchor = AnchorStyles.Top | AnchorStyles.Right,
         };
 
@@ -231,7 +231,7 @@ public class DiscoverForm : Form
 
     private void BuildEmpty()
     {
-        _empty = Ui.Label("正在扫描本机已安装应用…", 11F, false, Ui.TextSecondary);
+        _empty = Ui.Label("正在扫描本机已安装应用…", 11F, false, Ui.TextSecondaryOf());
         _empty.Location = new Point(40, 120);
         _empty.Visible = false;
         Controls.Add(_empty);
@@ -259,14 +259,8 @@ public class DiscoverForm : Form
             _status.Text = $"已加载缓存 · 共 {_merged.Count} 项";
         }
 
-        // 2) 后台全量扫描（缓存命中也静默刷新）
-        var opt = new AppDiscovery.DiscoveryOptions
-        {
-            Steam = Settings.ScanSteamEnabled,
-            Epic = Settings.ScanEpicEnabled,
-            Uwp = Settings.ScanUwpEnabled,
-            Winget = Settings.ScanWingetEnabled,
-        };
+        // 2) 后台全量扫描（缓存命中也静默刷新）；扫描源开关读 Settings.Current（T03/T05 验收）
+        var opt = Settings.Current.ToDiscoveryOptions();
         var progress = new Progress<AppDiscovery.ScanProgress>(p =>
         {
             BeginInvoke(new Action(() =>
@@ -321,7 +315,7 @@ public class DiscoverForm : Form
                 {
                     _empty.Visible = true;
                     _empty.Text = $"扫描失败：{ex.Message}";
-                    _empty.ForeColor = Ui.Danger;
+                    _empty.ForeColor = Ui.DangerOf();
                 }
                 else _status.Text = "部分源扫描失败，已显示可用结果";
             }));
@@ -339,11 +333,7 @@ public class DiscoverForm : Form
         _progress.Visible = true;
         _progress.Indeterminate = true;
         _progress.StatusText = "正在重新扫描本机已安装应用…";
-        var opt = new AppDiscovery.DiscoveryOptions
-        {
-            Steam = Settings.ScanSteamEnabled, Epic = Settings.ScanEpicEnabled,
-            Uwp = Settings.ScanUwpEnabled, Winget = Settings.ScanWingetEnabled,
-        };
+        var opt = Settings.Current.ToDiscoveryOptions();
         var progress = new Progress<AppDiscovery.ScanProgress>(p => BeginInvoke(new Action(() =>
         {
             _progress.StatusText = $"正在扫描：{p.SourceName}（{p.SourceIndex + 1}/{p.SourceTotal}）";
@@ -422,10 +412,9 @@ public class DiscoverForm : Form
             Height = 66,
             Margin = new Padding(2, 3, 2, 3),
             Radius = 14,
-            BackColor = Ui.Card,
+            BackColor = Ui.CardOf(),
             DrawBorder = true,
         };
-        if (d.AlreadyAdded) card.SetHoverTint(Color.FromArgb(238, 238, 241));
 
         var chk = new CheckBox
         {
@@ -456,16 +445,16 @@ public class DiscoverForm : Form
         else
             icon.Image = MakeUwpPlaceholder();
 
-        var name = Ui.Label(d.Name, 10F, true, d.AlreadyAdded ? Ui.TextSecondary : Ui.TextPrimary);
+        var name = Ui.Label(d.Name, 10F, true, d.AlreadyAdded ? Ui.TextSecondaryOf() : Ui.TextPrimaryOf());
         name.Location = new Point(84, 13);
 
         var meta = Ui.Label(
             $"{(string.IsNullOrEmpty(d.Version) ? "—" : d.Version)}" +
             (string.IsNullOrEmpty(d.Publisher) ? "" : $"  ·  {d.Publisher}"),
-            8.5F, false, Ui.TextSecondary);
+            8.5F, false, Ui.TextSecondaryOf());
         meta.Location = new Point(84, 35);
 
-        var path = Ui.Label(d.ExePath, 8F, false, Ui.TextSecondary);
+        var path = Ui.Label(d.ExePath, 8F, false, Ui.TextSecondaryOf());
         path.Location = new Point(84, 50);
         path.AutoEllipsis = true;
         path.AutoSize = false;
@@ -475,19 +464,19 @@ public class DiscoverForm : Form
         // 右侧标签
         var catChip = new PillChip(
             CategoryLabel(d),
-            d.Supported ? Ui.AccentLight : Ui.FillGray,
-            d.Supported ? Ui.AccentDark : Ui.TextSecondary)
+            d.Supported ? Ui.AccentLightOf() : Ui.FillGrayOf(),
+            d.Supported ? Ui.AccentDark : Ui.TextSecondaryOf())
         { Location = new Point(card.Width - 110, 13), Anchor = AnchorStyles.Top | AnchorStyles.Right };
 
         PillChip stateChip;
         if (!d.Supported)
-            stateChip = new PillChip("暂不支持分身", Ui.Danger, Ui.Danger, true)
+            stateChip = new PillChip("暂不支持分身", Ui.DangerOf(), Ui.DangerOf(), true)
             { Location = new Point(card.Width - 110, 36), Anchor = AnchorStyles.Top | AnchorStyles.Right };
         else if (d.AlreadyAdded)
-            stateChip = new PillChip("已添加", Ui.FillGray, Ui.TextSecondary)
+            stateChip = new PillChip("已添加", Ui.FillGrayOf(), Ui.TextSecondaryOf())
             { Location = new Point(card.Width - 110, 36), Anchor = AnchorStyles.Top | AnchorStyles.Right };
         else
-            stateChip = new PillChip(d.Tier, Ui.ChipPurple, Ui.ChipPurpleText)
+            stateChip = new PillChip(d.Tier, Ui.ChipPurpleOf(), Ui.ChipPurpleTextOf())
             { Location = new Point(card.Width - 110, 36), Anchor = AnchorStyles.Top | AnchorStyles.Right };
 
         card.Controls.Add(chk);

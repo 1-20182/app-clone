@@ -31,6 +31,9 @@ public class CloneEntry
 
     // ↓ 增量 1.1.0：分身角标颜色（空=默认蓝；否则 CloneColors 中的十六进制）
     public string Color { get; set; } = "";
+
+    // ↓ 增量 1.2.0：启动热键（如 "Ctrl+Alt+1"，空=未绑定）
+    public string Hotkey { get; set; } = "";
 }
 
 public class StoreModel
@@ -114,8 +117,12 @@ public class Store
         return app;
     }
 
-    /// <summary>从发现结果入库单条应用：写 AppEntry（名称取 DisplayName）、自动建 N 个分身、提取图标。</summary>
-    public (AppEntry App, List<CloneEntry> Clones) AddAppFromDiscovery(DiscoveredApp d, int cloneCount)
+    /// <summary>
+    /// 从发现结果入库单条应用：写 AppEntry（名称取 DisplayName）、自动建 N 个分身、提取图标。
+    /// 分身数 / 隔离模式 / 设备分身默认读 Settings.Current（T07 验收）；调用方传入则覆盖。
+    /// </summary>
+    public (AppEntry App, List<CloneEntry> Clones) AddAppFromDiscovery(
+        DiscoveredApp d, int cloneCount = -1, bool? deepIsolation = null, bool? deviceClone = null)
     {
         var app = new AppEntry
         {
@@ -132,11 +139,14 @@ public class Store
         Model.Apps.Add(app);
         Model.Clones[app.Id] = new List<CloneEntry>();
 
+        int n = cloneCount < 1 ? Settings.Current.DefaultCloneCount : Math.Clamp(cloneCount, 1, 9);
+        bool deep = deepIsolation ?? (Settings.Current.DefaultIsolationMode == IsolationMode.Deep);
+        bool dev = deviceClone ?? Settings.Current.DefaultDeviceClone;
+
         var clones = new List<CloneEntry>();
-        int n = Math.Clamp(cloneCount, 1, 9);
         for (int i = 0; i < n; i++)
         {
-            var c = new CloneEntry { Name = $"分身 {i + 1}" };
+            var c = new CloneEntry { Name = $"分身 {i + 1}", DeepIsolation = deep, DeviceClone = dev };
             Model.Clones[app.Id].Add(c);
             clones.Add(c);
         }
@@ -186,6 +196,31 @@ public class Store
         list.Add(clone);
         Save();
         return clone;
+    }
+
+    /// <summary>批量新建分身：循环复用 AddClone 的默认创建逻辑，返回新建列表。</summary>
+    public List<CloneEntry> BatchAddClones(string appId, int count)
+    {
+        var created = new List<CloneEntry>();
+        int n = Math.Clamp(count, 1, 99);
+        for (int i = 0; i < n; i++)
+            created.Add(AddClone(appId));
+        return created;
+    }
+
+    /// <summary>结束全部运行中分身（遍历 Launcher.Stop），返回成功结束数量。</summary>
+    public int EndAllRunning()
+    {
+        int ended = 0;
+        foreach (var app in Model.Apps)
+        {
+            foreach (var clone in ClonesOf(app.Id))
+            {
+                if (!Launcher.IsRunning(app.Id, clone.Id)) continue;
+                if (Launcher.Stop(app.Id, clone.Id)) ended++;
+            }
+        }
+        return ended;
     }
 
     public void RemoveClone(string appId, string cloneId)
