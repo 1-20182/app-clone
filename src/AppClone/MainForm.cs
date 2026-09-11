@@ -647,7 +647,7 @@ public class MainForm : Form
         int n = 0;
         foreach (var app in _store.Model.Apps)
             foreach (var c in _store.ClonesOf(app.Id))
-                if (Launcher.IsRunning(app.Id, c.Id)) { Launcher.Stop(app.Id, c.Id); n++; }
+                if (Launcher.IsRunning(app.Id, c.Id)) n++;
         if (n == 0) { SetStatus("当前没有运行中的分身"); return; }
         if (MessageBox.Show(this, $"确定结束全部 {n} 个运行中的分身吗？", "结束全部",
                 MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return;

@@ -24,8 +24,8 @@ public class SnapshotsForm : Form
         Font = Ui.Font(9.5F);
         Icon = MainForm.TryAppIcon();
 
-        var header = Ui.Label("该分身的快照（纯目录复制，不压缩）", 9.5F, true, Ui.TextPrimary)
-        { Location = new Point(20, 16), AutoSize = true };
+        var header = Ui.Label("该分身的快照（纯目录复制，不压缩）", 9.5F, true, Ui.TextPrimary);
+        header.Location = new Point(20, 16);
 
         _list = new FlowLayoutPanel
         {
@@ -35,7 +35,9 @@ public class SnapshotsForm : Form
         };
 
         _empty = Ui.Label("还没有快照。\n在分身菜单选择「重置分身数据（先存快照）」即可创建。",
-            9.5F, false, Ui.TextSecondary) { Location = new Point(24, 70), AutoSize = true, Visible = false };
+            9.5F, false, Ui.TextSecondary);
+        _empty.Location = new Point(24, 70);
+        _empty.Visible = false;
 
         var btnNew = new AppleButton("＋ 立即创建快照", AppleButton.Style.Filled, 9F)
         { Size = new Size(130, 32), Anchor = AnchorStyles.Bottom | AnchorStyles.Left, Location = new Point(20, Height - 50) };
@@ -66,9 +68,10 @@ public class SnapshotsForm : Form
             Width = _list.ClientSize.Width - 24, Height = 56, Margin = new Padding(2, 4, 2, 4),
             Radius = 12, BackColor = Ui.Card, DrawBorder = true,
         };
-        var name = Ui.Label(stamp.Replace('_', ' '), 10F, true, Ui.TextPrimary) { Location = new Point(16, 10) };
-        var hint = Ui.Label("点击「恢复」将用该快照覆盖当前分身数据", 8.5F, false, Ui.TextSecondary)
-        { Location = new Point(16, 32) };
+        var name = Ui.Label(stamp.Replace('_', ' '), 10F, true, Ui.TextPrimary);
+        name.Location = new Point(16, 10);
+        var hint = Ui.Label("点击「恢复」将用该快照覆盖当前分身数据", 8.5F, false, Ui.TextSecondary);
+        hint.Location = new Point(16, 32);
 
         var btnRestore = new AppleButton("恢复", AppleButton.Style.Filled, 9F)
         { Size = new Size(84, 32), Anchor = AnchorStyles.Top | AnchorStyles.Right, Location = new Point(card.Width - 184, 12) };

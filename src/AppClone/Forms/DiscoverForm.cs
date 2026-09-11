@@ -69,8 +69,8 @@ public class DiscoverForm : Form
                 Color.FromArgb(70, Ui.Accent), Color.FromArgb(70, ColorTranslator.FromHtml("#5E5CE6")), 0F);
             e.Graphics.FillRectangle(b, 0, top.Height - 2, top.Width, 2);
         };
-        var title = Ui.Label("发现本机已安装的应用", 13F, true, Ui.TextPrimary)
-        { Location = new Point(22, 12) };
+        var title = Ui.Label("发现本机已安装的应用", 13F, true, Ui.TextPrimary);
+        title.Location = new Point(22, 12);
         _btnRescan = new AppleButton("⟳ 重新扫描", AppleButton.Style.Secondary, 9F)
         { Size = new Size(110, 32), Anchor = AnchorStyles.Top | AnchorStyles.Right };
         _btnRescan.Location = new Point(0, 0);
@@ -78,7 +78,6 @@ public class DiscoverForm : Form
         top.Resize += (_, _) => _btnRescan.Location = new Point(top.Width - 110 - 18, 10);
         top.Controls.Add(title);
         top.Controls.Add(_btnRescan);
-        top.Resize += (_, _) => { };
         _btnRescan.Location = new Point(top.Width - 110 - 18, 10);
         Controls.Add(top);
         top.BringToFront();
@@ -184,8 +183,8 @@ public class DiscoverForm : Form
             Indeterminate = true,
             StatusText = "正在扫描本机已安装应用…",
         };
-        _status = Ui.Label("已选 0 项", 9F, false, Ui.TextSecondary)
-        { Location = new Point(24, 70) };
+        _status = Ui.Label("已选 0 项", 9F, false, Ui.TextSecondary);
+        _status.Location = new Point(24, 70);
 
         // 底部操作行
         _cboClone = new ComboBox
@@ -197,8 +196,9 @@ public class DiscoverForm : Form
         _cboClone.Items.AddRange(new object[] { "1", "2", "3" });
         _cboClone.SelectedIndex = 0;
 
-        var lblClone = Ui.Label("为每个应用创建分身：", 9F, false, Ui.TextSecondary)
-        { Location = new Point(footer.Width - 432, 14), Anchor = AnchorStyles.Top | AnchorStyles.Right };
+        var lblClone = Ui.Label("为每个应用创建分身：", 9F, false, Ui.TextSecondary);
+        lblClone.Location = new Point(footer.Width - 432, 14);
+        lblClone.Anchor = AnchorStyles.Top | AnchorStyles.Right;
 
         _chkShortcut = new CheckBox
         {
@@ -231,10 +231,9 @@ public class DiscoverForm : Form
 
     private void BuildEmpty()
     {
-        _empty = Ui.Label("正在扫描本机已安装应用…", 11F, false, Ui.TextSecondary)
-        {
-            AutoSize = true, Location = new Point(40, 120), Visible = false,
-        };
+        _empty = Ui.Label("正在扫描本机已安装应用…", 11F, false, Ui.TextSecondary);
+        _empty.Location = new Point(40, 120);
+        _empty.Visible = false;
         Controls.Add(_empty);
         _empty.BringToFront();
     }
@@ -457,19 +456,20 @@ public class DiscoverForm : Form
         else
             icon.Image = MakeUwpPlaceholder();
 
-        var name = Ui.Label(d.Name, 10F, true, d.AlreadyAdded ? Ui.TextSecondary : Ui.TextPrimary)
-        { Location = new Point(84, 13) };
+        var name = Ui.Label(d.Name, 10F, true, d.AlreadyAdded ? Ui.TextSecondary : Ui.TextPrimary);
+        name.Location = new Point(84, 13);
 
         var meta = Ui.Label(
             $"{(string.IsNullOrEmpty(d.Version) ? "—" : d.Version)}" +
             (string.IsNullOrEmpty(d.Publisher) ? "" : $"  ·  {d.Publisher}"),
-            8.5F, false, Ui.TextSecondary) { Location = new Point(84, 35) };
+            8.5F, false, Ui.TextSecondary);
+        meta.Location = new Point(84, 35);
 
-        var path = Ui.Label(d.ExePath, 8F, false, Ui.TextSecondary)
-        {
-            Location = new Point(84, 50), AutoEllipsis = true,
-            AutoSize = false, Size = new Size(card.Width - 220, 16),
-        };
+        var path = Ui.Label(d.ExePath, 8F, false, Ui.TextSecondary);
+        path.Location = new Point(84, 50);
+        path.AutoEllipsis = true;
+        path.AutoSize = false;
+        path.Size = new Size(card.Width - 220, 16);
         path.Tag = d.ExePath;
 
         // 右侧标签
