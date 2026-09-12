@@ -35,7 +35,7 @@ public class SnapshotsForm : Form
         };
 
         _empty = Ui.Label("还没有快照。\n在分身菜单选择「重置分身数据（先存快照）」即可创建。",
-            9.5F, false, Ui.TextSecondaryOf);
+            9.5F, false, Ui.TextSecondaryOf());
         _empty.Location = new Point(24, 70);
         _empty.Visible = false;
 
@@ -70,7 +70,7 @@ public class SnapshotsForm : Form
         };
         var name = Ui.Label(stamp.Replace('_', ' '), 10F, true, Ui.TextPrimaryOf());
         name.Location = new Point(16, 10);
-        var hint = Ui.Label("点击「恢复」将用该快照覆盖当前分身数据", 8.5F, false, Ui.TextSecondaryOf);
+        var hint = Ui.Label("点击「恢复」将用该快照覆盖当前分身数据", 8.5F, false, Ui.TextSecondaryOf());
         hint.Location = new Point(16, 32);
 
         var btnRestore = new AppleButton("恢复", AppleButton.Style.Filled, 9F)

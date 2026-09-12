@@ -211,7 +211,7 @@ public class SettingsForm : Form
         return new Control[]
         {
             MakeCheck("删除 / 重置前确认", Settings.Current.ConfirmDestructive, v => Settings.Current.ConfirmDestructive = v),
-            MakeCheck("记住"不再询问"", Settings.Current.RememberDontAsk, v => Settings.Current.RememberDontAsk = v),
+            MakeCheck("记住\"不再询问\"", Settings.Current.RememberDontAsk, v => Settings.Current.RememberDontAsk = v),
             MakeCheck("状态栏显示数据占用", Settings.Current.ShowDataUsage, v => Settings.Current.ShowDataUsage = v),
             MakeCheck("启动时检查更新", Settings.Current.UpdateCheck, v => Settings.Current.UpdateCheck = v),
         };
@@ -237,8 +237,9 @@ public class SettingsForm : Form
 
         // 迁移：高级功能，后续开放（禁用 + 灰显）
         var migrate = new Panel { Height = 26, Width = _content.ClientSize.Width - 40 };
-        var mLbl = Ui.Label("迁移数据目录到其它磁盘（高级功能 · 后续开放）", Ui.FCaption, false, Ui.TextSecondaryOf())
-        { Location = new Point(0, 6), ForeColor = Ui.TextSecondaryOf() };
+        var mLbl = Ui.Label("迁移数据目录到其它磁盘（高级功能 · 后续开放）", Ui.FCaption, false, Ui.TextSecondaryOf());
+        mLbl.Location = new Point(0, 6);
+        mLbl.ForeColor = Ui.TextSecondaryOf();
         migrate.Controls.Add(mLbl);
 
         return new Control[] { row, migrate };

@@ -239,7 +239,7 @@ public class MainForm : Form
         mManual.Click += (_, _) => AddAppFlow();
         addMenu.Items.Add(mDiscover);
         addMenu.Items.Add(mManual);
-        btnAdd.Click += (_, _) => addMenu.Show(btnAdd, new Point(0, btnAdd.Height)));
+        btnAdd.Click += (_, _) => addMenu.Show(btnAdd, new Point(0, btnAdd.Height));
 
         top.Controls.Add(iconBox);
         top.Controls.Add(title);
@@ -977,7 +977,7 @@ public class MainForm : Form
             }
             catch { }
             _dataSizeText = FormatSize(bytes);
-            BeginInvoke(new Action(UpdateStatusBar));
+            if (IsHandleCreated) BeginInvoke(new Action(UpdateStatusBar));
         });
     }
 

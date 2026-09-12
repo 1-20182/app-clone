@@ -47,8 +47,8 @@ internal static class Ui
     // ---- 主题选择器：桥接 AppTheme 与 ThemeManager（共享知识 14）----
     public static AppTheme Theme
     {
-        get => ThemeManager.Current == Theme.Dark ? AppTheme.Dark : AppTheme.Light;
-        set => ThemeManager.Set(value == AppTheme.Dark ? Theme.Dark : Theme.Light);
+        get => ThemeManager.Current == Core.Theme.Dark ? AppTheme.Dark : AppTheme.Light;
+        set => ThemeManager.Set(value == AppTheme.Dark ? Core.Theme.Dark : Core.Theme.Light);
     }
 
     /// <summary>主题感知访问器：统一委托 ThemeManager.Color（单一来源，保证全应用配色一致）。</summary>
@@ -393,6 +393,9 @@ internal sealed class AppleCard : Panel
     public bool Shadow { get; set; } = true;
     public Color? AccentBar { get; set; }              // 左侧强调条（如运行中状态）
     public Func<Color>? BackColorOverride { get; set; } // 选中态等外部控制
+
+    /// <summary>关闭悬停过渡动画（选中态卡片用，避免与选中高亮冲突）。</summary>
+    public void DisableHoverAnimation() { _animateHover = false; Invalidate(); }
 
     public AppleCard()
     {
