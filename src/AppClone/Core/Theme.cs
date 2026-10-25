@@ -10,7 +10,10 @@ public enum Theme { Light, Dark }
 public enum ThemeRole
 {
     Bg, Card, Accent, AccentDark, AccentLight, ChipPurple, ChipPurpleText,
-    TextPrimary, TextSecondary, Border, Ok, Danger, FillGray, FillGrayHover
+    TextPrimary, TextSecondary, Border, Ok, Danger, FillGray, FillGrayHover,
+    // ↓ 增量 1.3.0：兼容性徽章（✓ 可用 / ⚠ 部分 / ✗ 不支持）与源应用升级提示条配色。
+    //   追加在枚举末尾——既有成员顺序不变，避免任何按序号取值的老逻辑受影响。
+    OkLight, Warn, WarnLight, DangerLight
 }
 
 /// <summary>主题色板：Light / Dark 两套，键为 ThemeRole。色值与 Ui.cs 既有浅/深色板保持一致。</summary>
@@ -32,6 +35,10 @@ internal static class Palette
         { ThemeRole.Danger, ColorTranslator.FromHtml("#FF3B30") },
         { ThemeRole.FillGray, ColorTranslator.FromHtml("#E9E9EB") },
         { ThemeRole.FillGrayHover, ColorTranslator.FromHtml("#DCDCE1") },
+        { ThemeRole.OkLight, ColorTranslator.FromHtml("#E7F8EC") },
+        { ThemeRole.Warn, ColorTranslator.FromHtml("#FF9500") },
+        { ThemeRole.WarnLight, ColorTranslator.FromHtml("#FFF4E6") },
+        { ThemeRole.DangerLight, ColorTranslator.FromHtml("#FFECEB") },
     };
 
     private static readonly Dictionary<ThemeRole, Color> Dark = new()
@@ -50,6 +57,10 @@ internal static class Palette
         { ThemeRole.Danger, ColorTranslator.FromHtml("#FF453A") },
         { ThemeRole.FillGray, ColorTranslator.FromHtml("#3A3A3C") },
         { ThemeRole.FillGrayHover, ColorTranslator.FromHtml("#48484A") },
+        { ThemeRole.OkLight, ColorTranslator.FromHtml("#14301B") },
+        { ThemeRole.Warn, ColorTranslator.FromHtml("#FF9F0A") },
+        { ThemeRole.WarnLight, ColorTranslator.FromHtml("#3A2A12") },
+        { ThemeRole.DangerLight, ColorTranslator.FromHtml("#3A1E1D") },
     };
 
     public static Color Get(Theme t, ThemeRole r)

@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    F1 / F2 / F3 逻辑回归探针。
+    直接引用主程序编译产物 AppClone.dll，逐项断言新代码的真实行为（不启动 GUI、不碰用户真实数据：
+    数据目录由 FENSHEN_DATA_DIR 重定向到本工程输出目录下的 tmp\）。
+    运行方式：scripts\probe.cmd（先编译主程序再跑探针）。
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UseWindowsForms>true</UseWindowsForms>
+    <AssemblyName>F13Probe</AssemblyName>
+    <RootNamespace>F13Probe</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Reference Include="AppClone">
+      <HintPath>..\..\src\AppClone\bin\Release\net10.0-windows\AppClone.dll</HintPath>
+    </Reference>
+  </ItemGroup>
+
+</Project>

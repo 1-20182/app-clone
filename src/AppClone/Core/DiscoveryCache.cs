@@ -94,7 +94,8 @@ internal static class DiscoveryCacheIO
         {
             try
             {
-                using var key = RegistryKey.OpenBaseKey(root, view).OpenSubKey(sub);
+                using var baseKey = RegistryKey.OpenBaseKey(root, view);
+                using var key = baseKey.OpenSubKey(sub);
                 if (key == null) { stamps[name] = new SourceStamp { KeyCount = 0, LastWrite = 0 }; continue; }
                 stamps[name] = new SourceStamp { KeyCount = key.SubKeyCount, LastWrite = LastWriteTime(key) };
             }

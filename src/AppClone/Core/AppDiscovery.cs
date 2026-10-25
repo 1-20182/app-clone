@@ -109,8 +109,8 @@ public static class AppDiscovery
             foreach (var (hive, view) in roots)
             {
                 if (ct.IsCancellationRequested) break;
-                using var root = RegistryKey.OpenBaseKey(hive, view)
-                    .OpenSubKey(@"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall");
+                using var baseKey = RegistryKey.OpenBaseKey(hive, view);
+                using var root = baseKey.OpenSubKey(@"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall");
                 if (root == null) continue;
                 foreach (var sub in root.GetSubKeyNames())
                 {
@@ -198,7 +198,8 @@ public static class AppDiscovery
             foreach (var (hive, view) in roots)
             {
                 if (ct.IsCancellationRequested) break;
-                using var root = RegistryKey.OpenBaseKey(hive, view).OpenSubKey(sub);
+                using var baseKey = RegistryKey.OpenBaseKey(hive, view);
+                using var root = baseKey.OpenSubKey(sub);
                 if (root == null) continue;
                 foreach (var subName in root.GetSubKeyNames())
                 {

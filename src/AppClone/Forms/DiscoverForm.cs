@@ -43,6 +43,9 @@ public class DiscoverForm : Form
         Size = new Size(900, 640);
         MinimumSize = new Size(760, 520);
         StartPosition = FormStartPosition.CenterParent;
+        // PerMonitorV2：构造期逻辑像素交给 AutoScale 整树放大（高 DPI 下文本被裁的修复）
+        AutoScaleMode = AutoScaleMode.Dpi;
+        AutoScaleDimensions = new SizeF(96F, 96F);
         BackColor = Ui.BgOf();
         Font = Ui.Font(9.5F);
         Icon = MainForm.TryAppIcon();
@@ -263,7 +266,7 @@ public class DiscoverForm : Form
         var opt = Settings.Current.ToDiscoveryOptions();
         var progress = new Progress<AppDiscovery.ScanProgress>(p =>
         {
-            BeginInvoke(new Action(() =>
+            RunOnUi(new Action(() =>
             {
                 if (_progress.Visible == false && !cacheUsed) _progress.Visible = true;
                 _progress.Indeterminate = true;
@@ -274,11 +277,19 @@ public class DiscoverForm : Form
         _ = ScanAndRenderAsync(opt, progress, cacheUsed);
     }
 
+    /// <summary>C8①：后台回调统一走此入口，窗体已销毁 / 句柄未建时静默放弃，避免 BeginInvoke 抛异常。</summary>
+    private void RunOnUi(Action action)
+    {
+        if (IsHandleCreated && !IsDisposed)
+            BeginInvoke(action);
+    }
+
     private async Task ScanAndRenderAsync(AppDiscovery.DiscoveryOptions opt, IProgress<AppDiscovery.ScanProgress> progress, bool cacheUsed)
     {
+        var myCts = _cts;   // C8②：识别已被 Rescan 取代 / 已取消的扫描，不再回写 UI
         try
         {
-            var result = await AppDiscovery.ScanAsync(_cts!.Token, progress, opt);
+            var result = await AppDiscovery.ScanAsync(myCts!.Token, progress, opt);
             var merged = AppClassifier.Merge(result.Apps, _store.AddedExeKeys());
 
             // 落盘缓存（含指纹）
@@ -291,8 +302,9 @@ public class DiscoverForm : Form
             };
             DiscoveryCacheIO.Save(cache);
 
-            BeginInvoke(new Action(() =>
+            RunOnUi(new Action(() =>
             {
+                if (!ReferenceEquals(_cts, myCts)) return;   // 已被新一轮扫描取代，丢弃过期结果
                 _merged = merged;
                 RenderAll();
                 _progress.Visible = false;
@@ -304,12 +316,18 @@ public class DiscoverForm : Form
         }
         catch (OperationCanceledException)
         {
-            BeginInvoke(new Action(() => { _progress.Visible = false; _status.Text = "已取消扫描"; }));
+            RunOnUi(new Action(() =>
+            {
+                if (!ReferenceEquals(_cts, myCts)) return;   // 新一轮扫描已在跑，不覆盖其进度
+                _progress.Visible = false;
+                _status.Text = "已取消扫描";
+            }));
         }
         catch (Exception ex)
         {
-            BeginInvoke(new Action(() =>
+            RunOnUi(new Action(() =>
             {
+                if (!ReferenceEquals(_cts, myCts)) return;
                 _progress.Visible = false;
                 if (_merged.Count == 0)
                 {
@@ -324,7 +342,8 @@ public class DiscoverForm : Form
 
     public void Rescan()
     {
-        if (_cts != null) { try { _cts.Cancel(); } catch { } try { _cts.Dispose(); } catch { } }
+        // C8②：只 Cancel 不 Dispose —— 旧扫描协程持有 Token，Dispose 会引发 ObjectDisposedException
+        if (_cts != null) { try { _cts.Cancel(); } catch { } }
         _cts = new CancellationTokenSource();
         DiscoveryCacheIO.SafeDelete();
         _selected.Clear();
@@ -334,7 +353,7 @@ public class DiscoverForm : Form
         _progress.Indeterminate = true;
         _progress.StatusText = "正在重新扫描本机已安装应用…";
         var opt = Settings.Current.ToDiscoveryOptions();
-        var progress = new Progress<AppDiscovery.ScanProgress>(p => BeginInvoke(new Action(() =>
+        var progress = new Progress<AppDiscovery.ScanProgress>(p => RunOnUi(new Action(() =>
         {
             _progress.StatusText = $"正在扫描：{p.SourceName}（{p.SourceIndex + 1}/{p.SourceTotal}）";
         })));
@@ -343,7 +362,8 @@ public class DiscoverForm : Form
 
     protected override void OnFormClosing(FormClosingEventArgs e)
     {
-        if (_cts != null) { try { _cts.Cancel(); } catch { } try { _cts.Dispose(); } catch { } }
+        // C8②：只 Cancel 不 Dispose —— 协程仍持有 Token（Token 属性 / WaitHandle 在 Dispose 后访问会抛异常）
+        if (_cts != null) { try { _cts.Cancel(); } catch { } }
         base.OnFormClosing(e);
     }
 
@@ -438,9 +458,9 @@ public class DiscoverForm : Form
             Location = new Point(42, 17), BackColor = Color.Transparent,
         };
         if (d.Supported && !string.IsNullOrEmpty(d.ExePath))
-            AppIcons.LoadAsync(iconKey, d.ExePath, 32, img => BeginInvoke(new Action(() =>
+            AppIcons.LoadAsync(iconKey, d.ExePath, 32, img => RunOnUi(new Action(() =>
             {
-                if (!IsDisposed && icon.IsHandleCreated) icon.Image = img;
+                if (icon.IsHandleCreated) icon.Image = img;   // RunOnUi 已保证窗体存活
             })));
         else
             icon.Image = MakeUwpPlaceholder();
@@ -486,6 +506,16 @@ public class DiscoverForm : Form
         card.Controls.Add(path);
         card.Controls.Add(catChip);
         card.Controls.Add(stateChip);
+
+        // 运行期动态创建（ApplyFilter → MakeCard）：不参与窗体 AutoScale，高 DPI 下自行缩放；
+        // 宽度由列表实际宽度决定（物理像素），必须放在缩放之后重设，内部 path 列跟随重算
+        if (IsHandleCreated)
+        {
+            float f = Ui.DpiScaleOf(this);
+            if (Math.Abs(f - 1f) > 0.001f) card.Scale(new SizeF(f, f));
+        }
+        card.Width = Math.Max(Ui.S(this, 560), _list.ClientSize.Width - Ui.S(this, 24));
+        path.Width = Math.Max(80, card.Width - Ui.S(this, 220));
 
         if (selectable)
         {
@@ -595,23 +625,48 @@ public class DiscoverForm : Form
 
         int cloneCount = int.Parse((string)_cboClone.SelectedItem!);
         bool makeShortcut = _chkShortcut.Checked;
+
+        // C8①：添加期间禁用相关按钮 + 沙漏光标，阻止「取消 / 重新扫描」与窗体交互引发的后台回调竞态
         _btnAdd.Enabled = false;
+        _btnRescan.Enabled = false;
+        _btnSelectAll.Enabled = false;
+        UseWaitCursor = true;
         _status.Text = $"正在添加 {picked.Count} 个应用…";
 
         Task.Run(() =>
         {
-            var created = new List<(AppEntry App, List<CloneEntry> Clones)>();
-            int added = _store.AddAppsFromDiscovery(picked, cloneCount, out created);
-            if (makeShortcut)
+            bool ok;
+            List<(AppEntry App, List<CloneEntry> Clones)> created = new();
+            int added = 0;
+            try
             {
-                BeginInvoke(new Action(() =>
-                {
-                    foreach (var (app, clones) in created)
-                        foreach (var c in clones) CreateShortcut(app, c);
-                }));
+                added = _store.AddAppsFromDiscovery(picked, cloneCount, out created);
+                ok = true;
             }
-            BeginInvoke(new Action(() =>
+            catch
             {
+                ok = false;   // 失败也要在 UI 线程恢复按钮状态，不静默卡死
+            }
+
+            RunOnUi(new Action(() =>
+            {
+                // 恢复交互状态（若窗体正在关闭，RunOnUi 已保证不投递）
+                UseWaitCursor = false;
+                _btnRescan.Enabled = true;
+                _btnSelectAll.Enabled = true;
+                _btnAdd.Enabled = _selected.Count > 0;
+
+                if (!ok)
+                {
+                    _status.Text = "添加失败，请重试";
+                    return;
+                }
+
+                if (makeShortcut)
+                    foreach (var (app, clones) in created)
+                        foreach (var c in clones)
+                            CreateShortcut(app, c);
+
                 _status.Text = $"已添加 {added} 个应用";
                 DialogResult = DialogResult.OK;
                 Close();

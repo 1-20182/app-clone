@@ -1,0 +1,30 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    安装程序 UI 探针（无 GUI）。
+
+    本环境不允许拉起 GUI 进程，所以「浏览按钮会不会被挤出容器」这类问题
+    没法靠肉眼验收，只能靠几何断言。这里直接复用安装程序的 UI 源码
+    （SetupUi / PathSelector / FolderPicker），但**不引 Program.cs** ——
+    否则 44 MB 的 payload.zip 会被打进探针产物。
+
+    运行方式：scripts\probe.cmd 的第 3 步。
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>SetupUiProbe</AssemblyName>
+    <RootNamespace>SetupUiProbe</RootNamespace>
+    <NoWarn>$(NoWarn);WFO1000;WFO2000</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="..\..\src\AppClone.Setup\SetupUi.cs" Link="SetupUi.cs" />
+    <Compile Include="..\..\src\AppClone.Setup\PathSelector.cs" Link="PathSelector.cs" />
+    <Compile Include="..\..\src\AppClone.Setup\FolderPicker.cs" Link="FolderPicker.cs" />
+  </ItemGroup>
+
+</Project>

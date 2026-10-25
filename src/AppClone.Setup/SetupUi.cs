@@ -20,6 +20,13 @@ internal static class Ui
     public static Font Font(float size, bool bold = false) =>
         new(FontName, size, bold ? FontStyle.Bold : FontStyle.Regular);
 
+    // —— DPI 缩放（v1.4.1）：PerMonitorV2 下点数字体随 DPI 放大，手写像素必须同步换算，否则文本被裁 ——
+    /// <summary>当前设备 DPI 相对 96 的缩放系数（句柄未建时取主屏 DPI）。</summary>
+    public static float DpiScaleOf(Control c) => c.DeviceDpi / 96F;
+
+    /// <summary>按 DPI 把一个「96 DPI 逻辑像素」值换算成物理像素。</summary>
+    public static int S(Control c, int v) => (int)Math.Round(v * c.DeviceDpi / 96F);
+
     public static Color Lerp(Color a, Color b, float t)
     {
         t = Math.Clamp(t, 0f, 1f);
@@ -80,7 +87,7 @@ internal sealed class AppleButton : Button
         Cursor = Cursors.Hand;
         TabStop = false;
         UseVisualStyleBackColor = false;
-        Height = 38;
+        Height = Ui.S(this, 38);   // DPI 感知：高缩放下按钮跟着长高，文字才不贴边
     }
 
     private void TickFrame()

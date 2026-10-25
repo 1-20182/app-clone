@@ -9,12 +9,42 @@ internal static class Program
 {
     public const string AppName = "应用分身";
     public const string AppExe = "AppClone.exe";
-    public const string Version = "1.0.0";
+    public const string Version = "1.4.1";
     public const string UninstallKey = @"Software\Microsoft\Windows\CurrentVersion\Uninstall\{FENSHEN-APPCLONE}";
+    /// <summary>安装器自己的设置（记住上次安装位置，省得每次重新找路径）。</summary>
+    public const string SetupKey = @"Software\FenShen\AppCloneSetup";
 
     public static string DefaultDir =>
         Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
             "Programs", AppName);
+
+    /// <summary>上次安装到的位置；不可用则回退默认位置。</summary>
+    public static string InitialDir()
+    {
+        try
+        {
+            using var key = Registry.CurrentUser.OpenSubKey(SetupKey);
+            if (key?.GetValue("LastInstallDir") is string last && !string.IsNullOrWhiteSpace(last))
+            {
+                last = last.Trim();
+                string root = Path.GetPathRoot(last) ?? "";
+                if (Path.IsPathRooted(last) && root.Length > 0 && Directory.Exists(root))
+                    return last;
+            }
+        }
+        catch { }
+        return DefaultDir;
+    }
+
+    public static void SaveLastDir(string dir)
+    {
+        try
+        {
+            using var key = Registry.CurrentUser.CreateSubKey(SetupKey);
+            key?.SetValue("LastInstallDir", dir);
+        }
+        catch { }
+    }
 
     public static string SelfExe => Application.ExecutablePath;
 
@@ -24,11 +54,64 @@ internal static class Program
         if (args.Any(a => string.Equals(a, "/uninstall", StringComparison.OrdinalIgnoreCase)))
             return RunUninstall();
 
+        if (args.Any(a => string.Equals(a, "--selftest", StringComparison.OrdinalIgnoreCase)))
+            return RunSelfTest();
+
         Application.SetHighDpiMode(HighDpiMode.PerMonitorV2);
         Application.EnableVisualStyles();
         Application.SetCompatibleTextRenderingDefault(false);
         Application.Run(new WizardForm());
         return 0;
+    }
+
+    // ------------------------------------------------------------------ 无头自检
+
+    /// <summary>
+    /// --selftest：切到真实 DPI 上下文后构造全部窗体，不显示窗口、立即退出。
+    ///
+    /// <para>为什么需要它：布局探针进程没有 DPI 感知，<c>DeviceDpi</c> 恒 96，
+    /// 「96 DPI 看不见、真机 125%/150% 启动即崩」这类陷阱（如 v1.4.1 的 PathSelector
+    /// 构造期 NRE）在探针里是隐身的。本入口以 PerMonitorV2 进程身份走一遍构造期，
+    /// 让高缩放机器（含 CI 之外的真机排查）能无 GUI 复现。</para>
+    /// </summary>
+    private static int RunSelfTest()
+    {
+        TrySetProcessDpiAwareness();   // 必须在 WinForms 类型初始化之前生效
+        try
+        {
+            Application.SetHighDpiMode(HighDpiMode.PerMonitorV2);
+            Application.EnableVisualStyles();
+            Application.SetCompatibleTextRenderingDefault(false);
+
+            using (var sel = new PathSelector())
+            {
+                if (sel.BoundsSnapshot().Box.Width <= 0) return 3;
+            }
+            using (var f = new WizardForm())
+            {
+                if (f.ClientSize.Width <= 0) return 4;
+            }
+            return 0;
+        }
+        catch (Exception ex)
+        {
+            // WinExe 看不见控制台，落一个临时日志供排查
+            try
+            {
+                File.AppendAllText(Path.Combine(Path.GetTempPath(), "appclone-setup-selftest.log"),
+                    DateTime.Now + " SELFTEST_FAIL " + ex + Environment.NewLine);
+            }
+            catch { }
+            return 2;
+        }
+    }
+
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    private static extern bool SetProcessDpiAwarenessContext(IntPtr value);
+
+    private static void TrySetProcessDpiAwareness()
+    {
+        try { SetProcessDpiAwarenessContext(new IntPtr(-4)); } catch { }   // -4 = PerMonitorV2
     }
 
     // ------------------------------------------------------------------ 卸载
@@ -62,16 +145,22 @@ internal static class Program
                 "Programs", $"{AppName}.lnk");
             if (File.Exists(menu)) File.Delete(menu);
 
+            // 安装时按用户勾选创建了桌面快捷方式，卸载时必须一并清掉，否则会留下指向已删目录的坏图标
+            if (File.Exists(DesktopLnk)) File.Delete(DesktopLnk);
+
             Registry.CurrentUser.DeleteSubKeyTree(UninstallKey, false);
         }
         catch { }
 
         // 自删除：延时由外部 cmd 完成目录清理
+        // 先 cd 到 %TEMP%：cmd 删不掉自己的当前目录，否则会留下空文件夹；
+        // rd 偶发被 Defender 扫描占用导致失败，重试一次。
         try
         {
             var psi = new ProcessStartInfo("cmd.exe",
-                $"/c ping -n 3 127.0.0.1 > nul & rd /s /q \"{dir}\"")
-            { CreateNoWindow = true, UseShellExecute = false };
+                $"/c cd /d \"%TEMP%\" & ping -n 4 127.0.0.1 > nul & rd /s /q \"{dir}\"" +
+                $" & if exist \"{dir}\" (ping -n 3 127.0.0.1 > nul & rd /s /q \"{dir}\")")
+            { CreateNoWindow = true, UseShellExecute = false, WorkingDirectory = Path.GetTempPath() };
             Process.Start(psi);
         }
         catch { }
@@ -152,8 +241,9 @@ internal static class Program
 /// <summary>安装向导主窗体：欢迎 → 安装 → 完成。</summary>
 public class WizardForm : Form
 {
-    private string _dir = Program.DefaultDir;
+    private string _dir = Program.InitialDir();
     private bool _desktopShortcut = true;
+    private bool _started;
 
     private Panel _pages = null!;
     private Panel _pageWelcome = null!;
@@ -162,8 +252,12 @@ public class WizardForm : Form
     private RoundedProgressBar _progress = null!;
     private Label _progressText = null!;
     private Label _stepText = null!;
+    private Label _note = null!;
+    private Label _doneDir = null!;
     private CheckBox _chkDesktop = null!;
     private CheckBox _chkLaunch = null!;
+    private PathSelector _pathSelector = null!;
+    private AppleButton _btnInstall = null!;
 
     public WizardForm()
     {
@@ -172,7 +266,9 @@ public class WizardForm : Form
         MaximizeBox = false;
         MinimizeBox = false;
         StartPosition = FormStartPosition.CenterScreen;
-        Size = new Size(640, 460);
+        // 本窗体不走 AutoScale：页面布局在 Resize 里反复重算，逻辑值/物理值混用会打架；
+        // 统一为「所有字面量经 S() 换算物理像素」，构造期与运行期同一条代码路径。
+        Size = new Size(S(640), S(512));
         BackColor = Ui.Bg;
         Font = Ui.Font(10F);
         Icon = TryOwnIcon();
@@ -180,6 +276,9 @@ public class WizardForm : Form
         Ui.RoundWindow(this);
         BuildPages();
     }
+
+    /// <summary>96 DPI 逻辑像素 → 物理像素（安装向导全窗体统一走它；96 DPI 下恒等，探针断言不受影响）。</summary>
+    private int S(int v) => Ui.S(this, v);
 
     private static Icon? TryOwnIcon()
     {
@@ -210,9 +309,9 @@ public class WizardForm : Form
 
         var iconBox = new PictureBox
         {
-            Size = new Size(88, 88),
+            Size = new Size(S(88), S(88)),
             SizeMode = PictureBoxSizeMode.Zoom,
-            Location = new Point(60, 42),
+            Location = new Point(S(60), S(42)),
             Image = TryOwnIcon()?.ToBitmap(),
         };
 
@@ -223,7 +322,7 @@ public class WizardForm : Form
             ForeColor = Ui.TextPrimary,
             BackColor = Color.Transparent,
             AutoSize = true,
-            Location = new Point(168, 56),
+            Location = new Point(S(168), S(56)),
         };
         var sub = new Label
         {
@@ -232,36 +331,31 @@ public class WizardForm : Form
             ForeColor = Ui.TextSecondary,
             BackColor = Color.Transparent,
             AutoSize = true,
-            Location = new Point(170, 92),
+            Location = new Point(S(170), S(92)),
         };
 
         var body = new Label
         {
-            Text = "即将安装到以下位置（约 100 MB 空间）：",
+            Text = "选择安装位置：",
             Font = Ui.Font(9.5F),
             ForeColor = Ui.TextPrimary,
             BackColor = Color.Transparent,
             AutoSize = true,
-            Location = new Point(60, 180),
+            Location = new Point(S(60), S(172)),
         };
 
-        var txtDir = new TextBox
+        // 路径选择行：自带「浏览…」（原生资源管理器选择器）、「快速定位 ▾」、拖放与实时校验。
+        _pathSelector = new PathSelector
         {
-            Text = _dir,
-            Font = Ui.Font(9.5F),
-            Location = new Point(60, 210),
-            Size = new Size(420, 28),
-            Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
+            AppName = Program.AppName,
+            ExeName = Program.AppExe,
+            DefaultPath = Program.DefaultDir,
+            LastPath = Program.InitialDir(),
+            SizeHint = "约 100 MB",
         };
-        txtDir.TextChanged += (_, _) => _dir = txtDir.Text;
-
-        var btnBrowse = new AppleButton("浏览…", filled: false, 9.5F)
-        { Size = new Size(84, 30), Location = new Point(496, 208) };
-        btnBrowse.Click += (_, _) =>
-        {
-            using var dlg = new FolderBrowserDialog { SelectedPath = _dir, Description = "选择安装位置" };
-            if (dlg.ShowDialog(this) == DialogResult.OK) txtDir.Text = dlg.SelectedPath;
-        };
+        _pathSelector.SelectedPath = _dir;
+        _pathSelector.PathChanged += (_, _) => _dir = _pathSelector.SelectedPath;
+        _pathSelector.PathSubmitted += (_, _) => StartInstall();
 
         _chkDesktop = new CheckBox
         {
@@ -271,42 +365,69 @@ public class WizardForm : Form
             ForeColor = Ui.TextPrimary,
             BackColor = Color.Transparent,
             AutoSize = true,
-            Location = new Point(60, 262),
         };
 
-        var note = new Label
+        _note = new Label
         {
             Text = "安装即表示同意：本工具仅在本机隔离应用数据，请遵守目标应用的服务条款。",
             Font = Ui.Font(8.5F),
             ForeColor = Ui.TextSecondary,
             BackColor = Color.Transparent,
             AutoSize = true,
-            Location = new Point(60, 310),
         };
 
-        var btnInstall = new AppleButton("开始安装") { Size = new Size(132, 40), Anchor = AnchorStyles.Bottom | AnchorStyles.Right };
-        btnInstall.Click += (_, _) =>
-        {
-            _desktopShortcut = _chkDesktop.Checked;
-            if (string.IsNullOrWhiteSpace(_dir)) { MessageBox.Show(this, "请选择安装位置。"); return; }
-            try { Directory.CreateDirectory(_dir); }
-            catch (Exception ex) { MessageBox.Show(this, $"无法创建目录：{ex.Message}", "安装位置无效"); return; }
-            SlideAnimator.SlideTo(_pages, _pageInstalling);
-            Task.Run(() => DoInstall(_dir));
-        };
+        _btnInstall = new AppleButton("开始安装") { Size = new Size(S(132), S(40)) };
+        _btnInstall.Click += (_, _) => StartInstall();
 
         page.Controls.Add(iconBox);
         page.Controls.Add(title);
         page.Controls.Add(sub);
         page.Controls.Add(body);
-        page.Controls.Add(txtDir);
-        page.Controls.Add(btnBrowse);
+        page.Controls.Add(_pathSelector);
         page.Controls.Add(_chkDesktop);
-        page.Controls.Add(note);
-        page.Controls.Add(btnInstall);
-        page.Resize += (_, _) => btnInstall.Location = new Point(page.Width - 132 - 40, page.Height - 40 - 28);
+        page.Controls.Add(_note);
+        page.Controls.Add(_btnInstall);
+
+        // 同样手算：宿主在构造期只有 200×100，用 Anchor 会把列宽算飞。
+        // 宽度基準 page.ClientSize 已是物理像素，偏移量与行高经 S() 换算。
+        void Layout()
+        {
+            int w = page.ClientSize.Width;
+            int h = page.ClientSize.Height;
+            _pathSelector.SetBounds(S(60), S(198), Math.Max(_pathSelector.MinUsableWidthScaled, w - S(120)), _pathSelector.PreferredHeightScaled);
+            _chkDesktop.Location = new Point(S(60), _pathSelector.Bottom + S(14));
+            _note.Location = new Point(S(60), _chkDesktop.Bottom + S(20));
+            _btnInstall.Location = new Point(w - _btnInstall.Width - S(40), h - _btnInstall.Height - S(26));
+        }
+        page.Resize += (_, _) => Layout();
+        Layout();
 
         return page;
+    }
+
+    /// <summary>校验通过后进入安装页 —— 按钮点击与路径框回车共用，靠 _started 防重复触发。</summary>
+    private void StartInstall()
+    {
+        if (_started) return;
+
+        _desktopShortcut = _chkDesktop.Checked;
+        if (string.IsNullOrWhiteSpace(_dir))
+        {
+            MessageBox.Show(this, "请先选择安装位置。", Program.AppName, MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+
+        try { Directory.CreateDirectory(_dir); }
+        catch (Exception ex)
+        {
+            MessageBox.Show(this, $"无法创建目录：{ex.Message}", "安装位置无效", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
+
+        _started = true;
+        Program.SaveLastDir(_dir);
+        SlideAnimator.SlideTo(_pages, _pageInstalling);
+        Task.Run(() => DoInstall(_dir));
     }
 
     private Panel BuildInstallingPage()
@@ -320,7 +441,7 @@ public class WizardForm : Form
             ForeColor = Ui.TextPrimary,
             BackColor = Color.Transparent,
             AutoSize = true,
-            Location = new Point(60, 70),
+            Location = new Point(S(60), S(70)),
         };
         _stepText = new Label
         {
@@ -329,12 +450,12 @@ public class WizardForm : Form
             ForeColor = Ui.TextSecondary,
             BackColor = Color.Transparent,
             AutoSize = true,
-            Location = new Point(62, 118),
+            Location = new Point(S(62), S(118)),
         };
         _progress = new RoundedProgressBar
         {
-            Location = new Point(60, 170),
-            Size = new Size(500, 10),
+            Location = new Point(S(60), S(170)),
+            Size = new Size(S(500), S(10)),
             Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
         };
         _progressText = new Label
@@ -344,7 +465,7 @@ public class WizardForm : Form
             ForeColor = Ui.TextSecondary,
             BackColor = Color.Transparent,
             AutoSize = true,
-            Location = new Point(62, 192),
+            Location = new Point(S(62), S(192)),
         };
 
         page.Controls.Add(title);
@@ -365,7 +486,7 @@ public class WizardForm : Form
             ForeColor = Ui.Ok,
             BackColor = Color.Transparent,
             AutoSize = true,
-            Location = new Point(60, 52),
+            Location = new Point(S(60), S(52)),
         };
         var title = new Label
         {
@@ -374,7 +495,7 @@ public class WizardForm : Form
             ForeColor = Ui.TextPrimary,
             BackColor = Color.Transparent,
             AutoSize = true,
-            Location = new Point(118, 66),
+            Location = new Point(S(118), S(66)),
         };
         var body = new Label
         {
@@ -383,7 +504,17 @@ public class WizardForm : Form
             ForeColor = Ui.TextSecondary,
             BackColor = Color.Transparent,
             AutoSize = true,
-            Location = new Point(62, 118),
+            Location = new Point(S(62), S(118)),
+        };
+
+        _doneDir = new Label
+        {
+            Text = "",
+            Font = Ui.Font(8.5F),
+            ForeColor = Ui.TextSecondary,
+            BackColor = Color.Transparent,
+            AutoSize = true,
+            Location = new Point(S(62), S(146)),
         };
 
         _chkLaunch = new CheckBox
@@ -394,10 +525,10 @@ public class WizardForm : Form
             ForeColor = Ui.TextPrimary,
             BackColor = Color.Transparent,
             AutoSize = true,
-            Location = new Point(60, 170),
+            Location = new Point(S(60), S(186)),
         };
 
-        var btnFinish = new AppleButton("完成") { Size = new Size(120, 40), Anchor = AnchorStyles.Bottom | AnchorStyles.Right };
+        var btnFinish = new AppleButton("完成") { Size = new Size(S(120), S(40)) };
         btnFinish.Click += (_, _) =>
         {
             if (_chkLaunch.Checked) Program.LaunchApp(_dir);
@@ -407,9 +538,11 @@ public class WizardForm : Form
         page.Controls.Add(check);
         page.Controls.Add(title);
         page.Controls.Add(body);
+        page.Controls.Add(_doneDir);
         page.Controls.Add(_chkLaunch);
         page.Controls.Add(btnFinish);
-        page.Resize += (_, _) => btnFinish.Location = new Point(page.Width - 120 - 40, page.Height - 40 - 28);
+        page.Resize += (_, _) => btnFinish.Location =
+            new Point(page.ClientSize.Width - btnFinish.Width - S(40), page.ClientSize.Height - btnFinish.Height - S(26));
 
         return page;
     }
@@ -461,6 +594,7 @@ public class WizardForm : Form
                     MessageBox.Show(this, $"快捷方式创建失败：{ex.Message}", Program.AppName,
                         MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 }
+                _doneDir.Text = $"安装位置：{dir}";
                 SlideAnimator.SlideTo(_pages, _pageDone);
             });
         }

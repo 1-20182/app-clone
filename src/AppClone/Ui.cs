@@ -64,6 +64,12 @@ internal static class Ui
     public static Color AccentLightOf() => ThemeManager.Color(ThemeRole.AccentLight);
     public static Color ChipPurpleOf() => ThemeManager.Color(ThemeRole.ChipPurple);
     public static Color ChipPurpleTextOf() => ThemeManager.Color(ThemeRole.ChipPurpleText);
+
+    // 增量 1.3.0：兼容性徽章（✓/⚠/✗）与源应用升级提示条配色访问器
+    public static Color OkLightOf() => ThemeManager.Color(ThemeRole.OkLight);
+    public static Color WarnOf() => ThemeManager.Color(ThemeRole.Warn);
+    public static Color WarnLightOf() => ThemeManager.Color(ThemeRole.WarnLight);
+    public static Color DangerLightOf() => ThemeManager.Color(ThemeRole.DangerLight);
     /// <summary>悬停微亮色（随主题切换）。</summary>
     public static Color HoverTintOf() =>
         Theme == AppTheme.Dark ? ColorTranslator.FromHtml("#3A3A3C") : ColorTranslator.FromHtml("#EEF1F6");
@@ -81,6 +87,22 @@ internal static class Ui
 
     /// <summary>按当前主题取颜色（统一入口，禁止新增代码硬编码浅色常量）。</summary>
     public static Color ThemedColor(ThemeRole role) => ThemeManager.Color(role);
+
+    /// <summary>
+    /// 解析控件的有效父背景色：沿控件树向上找到第一个 alpha 不为 0（非透明）的 BackColor。
+    /// 布局容器（FlowLayoutPanel/TableLayoutPanel 等）常被设为 Color.Transparent（A=0），
+    /// 而 GDI+ 的 Graphics.Clear(透明色) 会以不透明黑渲染，导致自绘控件出现黑色底/黑色描边。
+    /// 一路都找不到非透明色时回退到主题背景色，保证清屏色永远不透明且随主题变化。
+    /// </summary>
+    public static Color EffectiveParentBack(Control? c)
+    {
+        for (Control? p = c?.Parent; p != null; p = p.Parent)
+        {
+            Color bc = p.BackColor;
+            if (bc.A != 0) return bc;
+        }
+        return ThemedColor(ThemeRole.Bg);
+    }
 
     /// <summary>
     /// 递归应用主题：重设非自绘控件底色并触发重绘。
@@ -101,6 +123,19 @@ internal static class Ui
 
     public static Font Font(float size, bool bold = false) =>
         new(FontName, size, bold ? FontStyle.Bold : FontStyle.Regular);
+
+    // —— DPI 缩放（v1.4.1）——
+    // 工程是 PerMonitorV2：点数字体随 DPI 自动放大（9.5pt 在 150% 下占 1.5 倍像素），
+    // 而手写像素布局不会自己放大 → 文本被裁（真机 125%/150% 下「大面积显示不全」的根因）。
+    // 规则：① 窗体构造期 UI 一律设 AutoScaleMode=Dpi + AutoScaleDimensions=(96,96)，交给框架整树缩放；
+    //       ② 运行期动态创建的子树（卡片/重建的面板）必须显式 Scale(DpiScaleOf(form))；
+    //       ③ 自测量尺寸的控件（PillChip）重写 ScaleControl 免疫缩放，避免被二次放大；
+    //       ④ ListView 列宽不走控件缩放，需用 S() 手动乘。
+    /// <summary>当前设备 DPI 相对 96 的缩放系数（句柄未建时取主屏 DPI）。</summary>
+    public static float DpiScaleOf(Control c) => c.DeviceDpi / 96F;
+
+    /// <summary>按 DPI 把一个「96 DPI 逻辑像素」值换算成物理像素。</summary>
+    public static int S(Control c, int v) => (int)Math.Round(v * c.DeviceDpi / 96F);
 
     public static Color Lerp(Color a, Color b, float t)
     {
@@ -187,9 +222,11 @@ internal sealed class AppleButton : Button
     private static readonly List<AppleButton> _animating = new();
 
     private readonly Style _style;
+    private readonly Action _themeHandler;   // C2：保存主题处理器引用，Dispose 时退订（ThemeChanged 为 Action 事件）
     private float _hover;   // 0..1
     private float _press;   // 0..1
     private bool _tracked, _down;
+    private static bool _tickHooked;               // C3：动画时钟 Tick 只挂一次的标志
 
     public int Radius { get; set; } = -1;   // -1 = 胶囊形
 
@@ -203,9 +240,17 @@ internal sealed class AppleButton : Button
         FlatStyle = FlatStyle.Flat;
         FlatAppearance.BorderSize = 0;
         Cursor = Cursors.Hand;
-        TabStop = false;
+        TabStop = true;   // 键盘可达：允许 Tab 聚焦（无障碍）
         UseVisualStyleBackColor = false;
-        ThemeManager.ThemeChanged += () => Invalidate();
+        _themeHandler = () => Invalidate();
+        ThemeManager.ThemeChanged += _themeHandler;
+        // C3②：控件销毁时立即退出动画集合并收敛时钟，防止句柄泄漏 / 时钟永不停止
+        Disposed += (_, _) =>
+        {
+            _animating.Remove(this);
+            _tracked = false; _down = false;
+            if (_animating.Count == 0) _clock.Stop();
+        };
     }
 
     private Color CurrentFill()
@@ -241,6 +286,8 @@ internal sealed class AppleButton : Button
 
     private void TickFrame()
     {
+        // C3②：已被 Dispose 的控件不再参与动画，立即出队并按需收敛时钟
+        if (IsDisposed) { _animating.Remove(this); if (_animating.Count == 0) _clock.Stop(); return; }
         float targetHover = _tracked && Enabled ? 1f : 0f;
         float targetPress = _down && Enabled ? 1f : 0f;
         _hover += (targetHover - _hover) * 0.30f;
@@ -254,10 +301,20 @@ internal sealed class AppleButton : Button
         Invalidate();
     }
 
+    /// <summary>C3①：静态动画时钟的 Tick 只订阅一次（_tickHooked 标志），Start/Stop 仅切换 Enabled。</summary>
+    private static void EnsureClock()
+    {
+        if (_tickHooked) return;
+        _tickHooked = true;
+        _clock.Tick += (_, _) => { foreach (var b in _animating.ToArray()) b.TickFrame(); };
+    }
+
     private void StartAnim()
     {
+        if (IsDisposed) return;
         if (!_animating.Contains(this)) _animating.Add(this);
-        if (!_clock.Enabled) { _clock.Tick += (_, _) => { foreach (var b in _animating.ToArray()) b.TickFrame(); }; _clock.Start(); }
+        EnsureClock();
+        if (!_clock.Enabled) _clock.Start();
     }
 
     protected override void OnMouseEnter(EventArgs e) { base.OnMouseEnter(e); _tracked = true; StartAnim(); }
@@ -271,7 +328,7 @@ internal sealed class AppleButton : Button
         var g = e.Graphics;
         g.SmoothingMode = SmoothingMode.AntiAlias;
         g.TextRenderingHint = System.Drawing.Text.TextRenderingHint.ClearTypeGridFit;
-        g.Clear(Parent?.BackColor ?? Ui.ThemedColor(ThemeRole.Bg));
+        g.Clear(Ui.EffectiveParentBack(this));
 
         int radius = Radius >= 0 ? Radius : Height / 2;
         using var path = Ui.Round(new Rectangle(0, 0, Width - 1, Height - 1), radius);
@@ -285,6 +342,28 @@ internal sealed class AppleButton : Button
         Color tc = CurrentText();
         TextRenderer.DrawText(g, Text, Font, new Rectangle(0, 0, Width, Height), tc,
             TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding);
+
+        // 键盘焦点环：聚焦时绘制 3px 主题色光晕 + 2px 描边，提升无障碍可见性（与 HTML 预览一致）
+        if (Focused)
+        {
+            float fr = radius < 0 ? (Height - 5) / 2 : Math.Max(2, radius - 2);
+            using var glow = new Pen(Color.FromArgb(90, Ui.ThemedColor(ThemeRole.Accent)), 4F);
+            using var ring1 = Ui.Round(new Rectangle(1, 1, Width - 3, Height - 3), (int)(fr + 1));   // C9①：路径用完即释放
+            g.DrawPath(glow, ring1);
+            using var fp = new Pen(Ui.ThemedColor(ThemeRole.Accent), 2F);
+            using var ring2 = Ui.Round(new Rectangle(2, 2, Width - 5, Height - 5), (int)fr);
+            g.DrawPath(fp, ring2);
+        }
+    }
+
+    protected override void OnGotFocus(EventArgs e) { base.OnGotFocus(e); Invalidate(); }
+    protected override void OnLostFocus(EventArgs e) { base.OnLostFocus(e); Invalidate(); }
+
+    /// <summary>C2：Dispose 时退订 ThemeManager.ThemeChanged，避免静态事件钉死已释放控件。</summary>
+    protected override void Dispose(bool disposing)
+    {
+        if (disposing) ThemeManager.ThemeChanged -= _themeHandler;
+        base.Dispose(disposing);
     }
 }
 
@@ -294,6 +373,7 @@ internal sealed class PillChip : Control
     private readonly Color _fill;
     private readonly Color _text;
     private readonly bool _outline;
+    private readonly Action _themeHandler;   // C2：保存主题处理器引用，Dispose 时退订（ThemeChanged 为 Action 事件）
 
     public PillChip(string text, Color fill, Color textColor, bool outline = false, float fontSize = 8F)
     {
@@ -305,15 +385,22 @@ internal sealed class PillChip : Control
         using var g = CreateGraphics();
         var size = TextRenderer.MeasureText(text, Font);
         Size = new Size(size.Width + 18, 22);
-        ThemeManager.ThemeChanged += () => Invalidate();
+        _themeHandler = () => Invalidate();
+        ThemeManager.ThemeChanged += _themeHandler;
     }
+
+    /// <summary>
+    /// 尺寸免疫缩放：徽章在构造时已按当前设备 DPI 实测文本（CreateGraphics + MeasureText），
+    /// 无论走窗体 AutoScale 还是运行期 card.Scale()，再缩放一次都会被撑大 —— 这里直接吞掉。
+    /// </summary>
+    protected override void ScaleControl(SizeF factor, BoundsSpecified specified) { }
 
     protected override void OnPaint(PaintEventArgs e)
     {
         var g = e.Graphics;
         g.SmoothingMode = SmoothingMode.AntiAlias;
         g.TextRenderingHint = System.Drawing.Text.TextRenderingHint.ClearTypeGridFit;
-        g.Clear(Parent?.BackColor ?? Ui.ThemedColor(ThemeRole.Card));
+        g.Clear(Ui.EffectiveParentBack(this));
 
         using var path = Ui.Round(new Rectangle(0, 0, Width - 1, Height - 1), Height / 2);
         using (var b = new SolidBrush(_fill))
@@ -325,6 +412,13 @@ internal sealed class PillChip : Control
         TextRenderer.DrawText(g, Text, Font, new Rectangle(0, 0, Width, Height), _text,
             TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding);
     }
+
+    /// <summary>C2：Dispose 时退订 ThemeManager.ThemeChanged，避免静态事件钉死已释放控件。</summary>
+    protected override void Dispose(bool disposing)
+    {
+        if (disposing) ThemeManager.ThemeChanged -= _themeHandler;
+        base.Dispose(disposing);
+    }
 }
 
 /// <summary>自绘圆角进度条（底色 FillGray、进度 Accent、高 4 圆角 2）+ 状态文案。用于发现页扫描进度。</summary>
@@ -334,6 +428,7 @@ internal sealed class RoundProgressBar : Control
     private int _value;
     private string _status = "";
     private bool _indeterminate;
+    private readonly Action _themeHandler;   // C2：保存主题处理器引用，Dispose 时退订（ThemeChanged 为 Action 事件）
 
     public int Maximum { get => _maximum; set { _maximum = Math.Max(1, value); Invalidate(); } }
     public int Value { get => _value; set { _value = Math.Clamp(value, 0, _maximum); Invalidate(); } }
@@ -345,16 +440,24 @@ internal sealed class RoundProgressBar : Control
         Height = 22;
         SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer
                  | ControlStyles.UserPaint | ControlStyles.ResizeRedraw, true);
-        ThemeManager.ThemeChanged += () => Invalidate();
+        _themeHandler = () => Invalidate();
+        ThemeManager.ThemeChanged += _themeHandler;
     }
 
     public void SetProgress(int value, string text) { Value = value; StatusText = text; }
+
+    /// <summary>C2：Dispose 时退订 ThemeManager.ThemeChanged，避免静态事件钉死已释放控件。</summary>
+    protected override void Dispose(bool disposing)
+    {
+        if (disposing) ThemeManager.ThemeChanged -= _themeHandler;
+        base.Dispose(disposing);
+    }
 
     protected override void OnPaint(PaintEventArgs e)
     {
         var g = e.Graphics;
         g.SmoothingMode = SmoothingMode.AntiAlias;
-        g.Clear(Parent?.BackColor ?? Ui.ThemedColor(ThemeRole.Bg));
+        g.Clear(Ui.EffectiveParentBack(this));
 
         int barH = 4, barY = 2;
         using (var track = Ui.Round(new Rectangle(0, barY, Width - 1, barH), 2))
@@ -371,8 +474,13 @@ internal sealed class RoundProgressBar : Control
         }
 
         if (_status.Length > 0)
-            TextRenderer.DrawText(g, _status, Ui.Font(Ui.FCaption), new Rectangle(0, barY + barH + 4, Width, 14),
+        {
+            // 文本区高度不能写死：DPI 放大后 8.5pt 文字需要 17px+，写死 14 会被裁掉下半截
+            int textTop = barY + barH + 4;
+            int textH = Math.Max(14, Height - textTop);
+            TextRenderer.DrawText(g, _status, Ui.Font(Ui.FCaption), new Rectangle(0, textTop, Width, textH),
                 Ui.ThemedColor(ThemeRole.TextSecondary), TextFormatFlags.Left | TextFormatFlags.NoPadding);
+        }
     }
 }
 
@@ -385,14 +493,28 @@ internal sealed class AppleCard : Panel
     private float _hover;
     private bool _tracked;
     private bool _animateHover = true;
+    private readonly Action _themeHandler;   // C2：保存主题处理器引用，Dispose 时退订（ThemeChanged 为 Action 事件）
     private static readonly System.Windows.Forms.Timer _clock = new() { Interval = 16 };
     private static readonly List<AppleCard> _animating = new();
+    private static bool _tickHooked;               // C3：动画时钟 Tick 只挂一次的标志
 
-    public int Radius { get; set; } = 14;
+    public int Radius { get; set; } = 16;
     public bool DrawBorder { get; set; } = true;
     public bool Shadow { get; set; } = true;
     public Color? AccentBar { get; set; }              // 左侧强调条（如运行中状态）
     public Func<Color>? BackColorOverride { get; set; } // 选中态等外部控制
+
+    /// <summary>是否可键盘聚焦（左侧应用卡片开启，支持 Tab + Enter/Space 选中）。</summary>
+    private bool _selectable;
+    public bool Selectable
+    {
+        get => _selectable;
+        set
+        {
+            _selectable = value;
+            if (value) { SetStyle(ControlStyles.Selectable, true); TabStop = true; }
+        }
+    }
 
     /// <summary>关闭悬停过渡动画（选中态卡片用，避免与选中高亮冲突）。</summary>
     public void DisableHoverAnimation() { _animateHover = false; Invalidate(); }
@@ -402,7 +524,15 @@ internal sealed class AppleCard : Panel
         SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer
                  | ControlStyles.UserPaint | ControlStyles.ResizeRedraw, true);
         BackColor = Ui.ThemedColor(ThemeRole.Card);
-        ThemeManager.ThemeChanged += () => Invalidate();
+        _themeHandler = () => Invalidate();
+        ThemeManager.ThemeChanged += _themeHandler;
+        // C3②：控件销毁时立即退出动画集合并收敛时钟，防止句柄泄漏 / 时钟永不停止
+        Disposed += (_, _) =>
+        {
+            _animating.Remove(this);
+            _tracked = false;
+            if (_animating.Count == 0) _clock.Stop();
+        };
     }
 
     private void HookHover(Control c)
@@ -412,6 +542,7 @@ internal sealed class AppleCard : Panel
         {
             BeginInvoke(new Action(() =>
             {
+                if (IsDisposed || !IsHandleCreated) return;   // C3②：控件已销毁时不再触发动画
                 if (!ClientRectangle.Contains(PointToClient(Cursor.Position)))
                 { _tracked = false; StartAnim(); }
             }));
@@ -440,11 +571,15 @@ internal sealed class AppleCard : Panel
         UpdateRegion();
     }
 
+    protected override void OnGotFocus(EventArgs e) { base.OnGotFocus(e); Invalidate(); }
+    protected override void OnLostFocus(EventArgs e) { base.OnLostFocus(e); Invalidate(); }
+
     private void UpdateRegion()
     {
         if (Width <= 0 || Height <= 0) return;
         try { Region?.Dispose(); } catch { }
-        Region = new Region(Ui.Round(new Rectangle(0, 0, Width, Height), Radius));
+        using var path = Ui.Round(new Rectangle(0, 0, Width, Height), Radius);   // C9①：路径用完即释放
+        Region = new Region(path);
     }
 
     private Color CurrentBack()
@@ -455,6 +590,8 @@ internal sealed class AppleCard : Panel
 
     private void TickFrame()
     {
+        // C3②：已被 Dispose 的控件不再参与动画，立即出队并按需收敛时钟
+        if (IsDisposed) { _animating.Remove(this); if (_animating.Count == 0) _clock.Stop(); return; }
         float target = _tracked ? 1f : 0f;
         _hover += (target - _hover) * 0.30f;
         if (Math.Abs(_hover - target) < 0.01f)
@@ -466,27 +603,37 @@ internal sealed class AppleCard : Panel
         Invalidate();
     }
 
+    /// <summary>C3①：静态动画时钟的 Tick 只订阅一次（_tickHooked 标志），Start/Stop 仅切换 Enabled。</summary>
+    private static void EnsureClock()
+    {
+        if (_tickHooked) return;
+        _tickHooked = true;
+        _clock.Tick += (_, _) => { foreach (var c in _animating.ToArray()) c.TickFrame(); };
+    }
+
     private void StartAnim()
     {
+        if (IsDisposed) return;
         if (!_animating.Contains(this)) _animating.Add(this);
-        if (!_clock.Enabled) { _clock.Tick += (_, _) => { foreach (var c in _animating.ToArray()) c.TickFrame(); }; _clock.Start(); }
+        EnsureClock();
+        if (!_clock.Enabled) _clock.Start();
     }
 
     protected override void OnPaint(PaintEventArgs e)
     {
         var g = e.Graphics;
         g.SmoothingMode = SmoothingMode.AntiAlias;
-        g.Clear(Parent?.BackColor ?? Ui.ThemedColor(ThemeRole.Bg));
+        g.Clear(Ui.EffectiveParentBack(this));
 
         var rect = new Rectangle(0, 0, Width - 1, Height - 1);
 
         if (Shadow)
         {
-            for (int i = 3; i >= 1; i--)
+            for (int i = 4; i >= 1; i--)
             {
-                int a = 8 + i * 5;
-                using var sp = Ui.Round(new Rectangle(i * 2, i * 2 + 2, Width - i * 4 - 1, Height - i * 4 - 3), Radius);
-                using var sb = new SolidBrush(Color.FromArgb(Math.Min(a, _hover > 0.5f ? 44 : 30), 15, 23, 42));
+                int a = 4 + i * 3;
+                using var sp = Ui.Round(new Rectangle(i * 2, i * 2 + 3, Width - i * 4 - 1, Height - i * 4 - 4), Radius);
+                using var sb = new SolidBrush(Color.FromArgb(Math.Min(a, _hover > 0.5f ? 38 : 22), 15, 23, 42));
                 g.FillPath(sb, sp);
             }
         }
@@ -498,14 +645,33 @@ internal sealed class AppleCard : Panel
             using (var p = new Pen(Ui.ThemedColor(ThemeRole.Border), 1f))
                 g.DrawPath(p, path);
 
+        // 键盘焦点环（仅可聚焦卡片，如左侧应用卡片）：3px 主题色光晕 + 2px 描边
+        if (_selectable && Focused)
+        {
+            float fr = Math.Max(2, Radius - 2);
+            using var glow = new Pen(Color.FromArgb(90, Ui.ThemedColor(ThemeRole.Accent)), 4F);
+            using var ring1 = Ui.Round(new Rectangle(1, 1, Width - 3, Height - 3), (int)(fr + 1));   // C9①：路径用完即释放
+            g.DrawPath(glow, ring1);
+            using var fp = new Pen(Ui.ThemedColor(ThemeRole.Accent), 2F);
+            using var ring2 = Ui.Round(new Rectangle(2, 2, Width - 5, Height - 5), (int)fr);
+            g.DrawPath(fp, ring2);
+        }
+
         if (AccentBar.HasValue)
         {
             using var bp = Ui.Round(new Rectangle(0, 0, Width - 1, Height - 1), Radius);
             g.SetClip(bp);
-            using var b = new SolidBrush(Ui.ThemedColor(ThemeRole.Ok));
+            using var b = new SolidBrush(AccentBar.Value);
             g.FillRectangle(b, 0, 8, 4, Height - 16);
             g.ResetClip();
         }
+    }
+
+    /// <summary>C2：Dispose 时退订 ThemeManager.ThemeChanged，避免静态事件钉死已释放控件。</summary>
+    protected override void Dispose(bool disposing)
+    {
+        if (disposing) ThemeManager.ThemeChanged -= _themeHandler;
+        base.Dispose(disposing);
     }
 }
 

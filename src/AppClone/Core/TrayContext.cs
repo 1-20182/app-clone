@@ -11,6 +11,10 @@ public sealed class TrayContext : IDisposable
     public event Action? OpenRequested;
     public event Action? NewRequested;
     public event Action? ExitRequested;
+    /// <summary>增量 1.4.0（F4）：托盘直接打开分身管理中心。</summary>
+    public event Action? ManagerRequested;
+    /// <summary>增量 1.4.0（F5）：托盘直接打开操作日志。</summary>
+    public event Action? LogsRequested;
 
     private readonly Icon _icon;   // 必须在构造赋值（避免 CS0191）
     private readonly NotifyIcon _notify;
@@ -30,9 +34,19 @@ public sealed class TrayContext : IDisposable
     /// <summary>构建右键菜单。recent 为最近启动项（最多 recentN 条），点击打开主窗口。</summary>
     public void BuildMenu(IEnumerable<(string appName, string cloneName, string appId, string cloneId)> recent, int recentN = 5)
     {
+        // A8：释放旧菜单实例，避免每次重建泄漏一个 ContextMenuStrip
+        if (_notify.ContextMenuStrip != null)
+        {
+            var old = _notify.ContextMenuStrip;
+            _notify.ContextMenuStrip = null;
+            old.Dispose();
+        }
+
         var cms = new ContextMenuStrip();
         cms.Items.Add(new ToolStripMenuItem("打开应用分身", null, (_, _) => OpenRequested?.Invoke()));
         cms.Items.Add(new ToolStripMenuItem("新建分身", null, (_, _) => NewRequested?.Invoke()));
+        cms.Items.Add(new ToolStripMenuItem("分身管理中心", null, (_, _) => ManagerRequested?.Invoke()));
+        cms.Items.Add(new ToolStripMenuItem("操作日志", null, (_, _) => LogsRequested?.Invoke()));
 
         var items = (recent ?? System.Array.Empty<(string, string, string, string)>()).Take(recentN).ToArray();
         if (items.Length > 0)

@@ -19,8 +19,8 @@ public static class GameLibrary
             var list = new List<DiscoveredApp>();
             try
             {
-                using var steamKey = RegistryKey.OpenBaseKey(RegistryHive.CurrentUser, RegistryView.Default)
-                    .OpenSubKey(@"Software\Valve\Steam");
+                using var baseKey = RegistryKey.OpenBaseKey(RegistryHive.CurrentUser, RegistryView.Default);
+                using var steamKey = baseKey.OpenSubKey(@"Software\Valve\Steam");
                 var steamExe = steamKey?.GetValue("SteamExe") as string;
                 if (string.IsNullOrEmpty(steamExe)) return list;
                 var steamDir = Path.GetDirectoryName(steamExe);
@@ -43,14 +43,7 @@ public static class GameLibrary
                         if (string.IsNullOrEmpty(name) || string.IsNullOrEmpty(instDir)) continue;
                         var gameDir = Path.Combine(common, instDir);
                         if (!Directory.Exists(gameDir)) continue;
-                        var exe = Directory.GetFiles(gameDir, "*.exe", SearchOption.AllDirectories)
-                            .FirstOrDefault(x =>
-                            {
-                                var fn = Path.GetFileName(x).ToLowerInvariant();
-                                return !fn.Contains("crashhandler") && !fn.Contains("redist")
-                                    && !fn.Contains("unityplayer") && !fn.Contains("installscript")
-                                    && !fn.Contains("_commonredist");
-                            });
+                        var exe = FindGameExe(gameDir, ct);
                         if (exe != null && File.Exists(exe))
                             list.Add(new DiscoveredApp
                             {
@@ -138,6 +131,42 @@ public static class GameLibrary
     {
         try { return Directory.GetFiles(dir, pattern); }
         catch { return Array.Empty<string>(); }
+    }
+
+    /// <summary>浅层查找游戏主 exe：先根目录 TopDirectoryOnly，未找到再遍历一级子目录各做 TopDirectoryOnly。
+    /// 不做深层递归（大游戏库 AllDirectories 远超扫描源 3 秒超时，必超时）。</summary>
+    private static string? FindGameExe(string gameDir, CancellationToken ct)
+    {
+        var exe = PickExe(SafeEnumFiles(gameDir, "*.exe"), ct);
+        if (exe != null) return exe;
+
+        string[] subDirs;
+        try { subDirs = Directory.GetDirectories(gameDir); } catch { return null; }
+        foreach (var sub in subDirs)
+        {
+            if (ct.IsCancellationRequested) break;
+            try
+            {
+                exe = PickExe(Directory.GetFiles(sub, "*.exe", SearchOption.TopDirectoryOnly), ct);
+                if (exe != null) return exe;
+            }
+            catch { }
+        }
+        return null;
+    }
+
+    /// <summary>按原过滤规则挑第一个候选 exe（跳过 crashhandler/redist/unityplayer 等噪音文件）。</summary>
+    private static string? PickExe(IEnumerable<string> files, CancellationToken ct)
+    {
+        foreach (var f in files)
+        {
+            if (ct.IsCancellationRequested) break;
+            var fn = Path.GetFileName(f).ToLowerInvariant();
+            if (fn.Contains("crashhandler") || fn.Contains("redist") || fn.Contains("unityplayer")
+                || fn.Contains("installscript") || fn.Contains("_commonredist")) continue;
+            if (File.Exists(f)) return f;
+        }
+        return null;
     }
 
     private static string? GetStr(JsonElement e, string name) =>

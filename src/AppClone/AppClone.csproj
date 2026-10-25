@@ -8,7 +8,7 @@
     <Nullable>enable</Nullable>
     <AssemblyName>AppClone</AssemblyName>
     <RootNamespace>AppClone</RootNamespace>
-    <Version>1.2.0</Version>
+    <Version>1.4.1</Version>
     <Product>应用分身</Product>
     <AssemblyTitle>应用分身</AssemblyTitle>
     <Description>电脑版应用分身 / 沙盒多开工具</Description>

@@ -24,8 +24,17 @@ src/AppClone.Setup/Payload/payload.zip
 *.dll
 *.exe
 
-# ===== 测试输出 =====
+# ===== 测试输出 / 测试运行时数据 =====
 test/out/
+test/data/
+
+# ===== 本地构建日志、临时探针输出与预览产物 =====
+/build*.log
+/_*.log
+/_*.txt
+.preview_assets/
+appclone-preview.html
+startup_backup_*.reg
 
 # ===== 杂项临时文件 =====
 .guipid

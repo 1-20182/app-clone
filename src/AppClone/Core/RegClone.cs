@@ -76,19 +76,27 @@ public static class RegClone
     {
         error = "";
         string sub = CloneSubKey(appId, cloneId);
-        if (IsReady(sub)) return true;
 
-        RegDeleteTreeW(HKCU, sub);
-        int rc = RegCreateKeyExW(HKCU, sub, 0, null, 0, KEY_ALL_ACCESS, IntPtr.Zero, out IntPtr hRoot, out _);
-        if (rc != 0) { error = $"创建注册表分身根失败: {rc}"; return false; }
-        try
+        // A4：每键锁消除 check-then-act 竞态（IsReady → RegDeleteTreeW → Copy → MarkReady）
+        lock (_buildLocks.GetOrAdd(sub, _ => new object()))
         {
-            CopyUser(HKCU, hRoot);
-            MarkReady(hRoot);
-            return true;
+            if (IsReady(sub)) return true;
+
+            RegDeleteTreeW(HKCU, sub);
+            int rc = RegCreateKeyExW(HKCU, sub, 0, null, 0, KEY_ALL_ACCESS, IntPtr.Zero, out IntPtr hRoot, out _);
+            if (rc != 0) { error = $"创建注册表分身根失败: {rc}"; return false; }
+            try
+            {
+                CopyUser(HKCU, hRoot);
+                MarkReady(hRoot);
+                return true;
+            }
+            finally { RegCloseKey(hRoot); }
         }
-        finally { RegCloseKey(hRoot); }
     }
+
+    /// <summary>每个分身注册表根一把锁：串行化同一 subkey 的重建流程（A4）。</summary>
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, object> _buildLocks = new();
 
     public static void ResetCloneRegistry(string appId, string cloneId)
     {
@@ -340,13 +348,20 @@ public static class RegClone
     private static List<string> EnumSubKeys(IntPtr hKey)
     {
         var list = new List<string>();
+        int consecutiveErrors = 0;
         for (int i = 0; ; i++)
         {
             var sb = new StringBuilder(512);
             int len = sb.Capacity;
             int rc = RegEnumKeyExW(hKey, i, sb, ref len, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
             if (rc == ERROR_NO_MORE_ITEMS) break;
-            if (rc != 0) continue;
+            if (rc != 0)
+            {
+                // A6：非 NO_MORE_ITEMS 错误时同 index 重试；连续 3 次失败即 break，防死循环
+                if (++consecutiveErrors >= 3) break;
+                continue;
+            }
+            consecutiveErrors = 0;
             list.Add(sb.ToString(0, len));
         }
         return list;

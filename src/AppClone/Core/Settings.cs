@@ -56,6 +56,32 @@ public class Settings
     public bool ShowDataUsage { get; set; } = false;         // 数据占用提示
     public bool UpdateCheck { get; set; } = true;            // 启动检查更新（P2 接线）
 
+    // —— P1 启动密码锁 ——
+    /// <summary>PBKDF2 哈希串「salt:hash」(Base64)；空串 = 未启用。明文永不落盘。</summary>
+    public string PasswordHash { get; set; } = "";
+
+    // —— 增量 1.3.0（F3）——
+    public bool ShowDryRun { get; set; } = true;             // 启动前显示执行预览（Dry Run），默认开
+    public int MinFreeDiskGB { get; set; } = 2;              // 预检查的磁盘剩余空间阈值（GB）
+
+    // —— 增量 1.4.0（F5 / F6）——
+    public bool WriteOpsLog { get; set; } = true;            // 写操作流水日志（data\logs\ops-*.jsonl，保留 7 天）
+    public LogLevel MinLogLevel { get; set; } = LogLevel.Info; // 落盘的最低级别（Debug 会把观察窗心跳也写进去）
+    public bool BadgeShortcutIcon { get; set; } = true;      // 桌面快捷方式使用带序号角标的图标
+    public bool TaskbarGrouping { get; set; } = false;       // 实验性：为快捷方式写入 AppUserModelID，便于任务栏分组
+
+    // —— P2 窗口位置记忆（W/H = 0 表示从未记录，回退默认居中）——
+    // 存物理像素：跨 DPI 更换屏幕时由 MainForm 做越界回收，不会把窗口丢到屏幕外。
+    public int WindowX { get; set; }
+    public int WindowY { get; set; }
+    public int WindowW { get; set; }
+    public int WindowH { get; set; }
+    public bool WindowMaximized { get; set; }
+
+    // —— P3 新手引导 ——
+    /// <summary>新手教程是否已完成/已跳过（首次启动自动播放，可从菜单重播）。</summary>
+    public bool OnboardingDone { get; set; }
+
     private static readonly JsonSerializerOptions JsonOpts = new()
     {
         WriteIndented = true,

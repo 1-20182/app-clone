@@ -16,6 +16,13 @@ public sealed class NativeLink
     public int IconIndex { get; set; }
     public string Description { get; set; } = "";
 
+    /// <summary>
+    /// 实验性（F6）：把 AppUserModelID 写进 .lnk 的属性存储，便于任务栏把多个分身分组区分。
+    /// 各 Windows 版本对「快捷方式 AUMID」与「进程自身 AUMID」的匹配行为并不一致，
+    /// 因此默认关闭，且**任何失败都静默忽略** —— 分组是锦上添花，不能拖垮创建快捷方式本身。
+    /// </summary>
+    public string? AppUserModelId { get; set; }
+
     public void Save(string lnkPath)
     {
         IShellLinkW link = (IShellLinkW)new ShellLinkClass();
@@ -34,6 +41,89 @@ public sealed class NativeLink
         {
             _ = Marshal.ReleaseComObject(link);
         }
+
+        if (!string.IsNullOrWhiteSpace(AppUserModelId))
+            TrySetAppUserModelId(lnkPath, AppUserModelId!);
+    }
+
+    // ------------------------------------------------------------------ 实验性：AUMID
+
+    private const uint GPS_READWRITE = 0x2;
+    private const uint PRSPEC_PROPID = 0x0;
+
+    /// <summary>PKEY_AppUserModel_ID = {9F4C2855-9F79-4B39-A8D0-E1D42DE1D5F3}, pid = 5。</summary>
+    private static readonly PROPERTYKEY PkeyAppUserModelId = new()
+    {
+        fmtid = new Guid("9F4C2855-9F79-4B39-A8D0-E1D42DE1D5F3"),
+        pid = 5,
+    };
+
+    private static void TrySetAppUserModelId(string lnkPath, string aumid)
+    {
+        IPropertyStore? store = null;
+        IntPtr strPtr = IntPtr.Zero;
+        try
+        {
+            var iid = typeof(IPropertyStore).GUID;
+            if (SHGetPropertyStoreFromParsingName(lnkPath, IntPtr.Zero, GPS_READWRITE, ref iid, out store) != 0)
+                return;
+            if (store == null) return;
+
+            // vt = VT_LPWSTR(31)，字符串指针置于 union（偏移 8）
+            strPtr = Marshal.StringToCoTaskMemUni(aumid);
+            var spec = new PROPSPEC { ulKind = PRSPEC_PROPID, unionValue = (IntPtr)PkeyAppUserModelId.pid };
+            var variant = new PROPVARIANT { vt = 31, pointerValue = strPtr };
+            store.SetValue(ref spec, ref variant);
+            store.Commit();
+        }
+        catch { }
+        finally
+        {
+            if (strPtr != IntPtr.Zero) { try { Marshal.FreeCoTaskMem(strPtr); } catch { } }
+            if (store != null) { try { Marshal.ReleaseComObject(store); } catch { } }
+        }
+    }
+
+    [System.Runtime.InteropServices.DllImport("shell32.dll", CharSet = CharSet.Unicode, PreserveSig = true)]
+    private static extern int SHGetPropertyStoreFromParsingName(
+        string pszPath, IntPtr pbc, uint flags, ref Guid riid,
+        [MarshalAs(UnmanagedType.Interface)] out IPropertyStore ppv);
+
+    [ComImport]
+    [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    [Guid("886D8EEB-8CF2-4446-8D02-CDBA1DBDCF99")]
+    private interface IPropertyStore
+    {
+        void GetCount(out uint cProps);
+        void GetAt(uint iProp, out PROPERTYKEY pkey);
+        void GetValue(ref PROPSPEC key, out PROPVARIANT pv);
+        void SetValue(ref PROPSPEC key, ref PROPVARIANT pv);
+        void Commit();
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct PROPERTYKEY
+    {
+        public Guid fmtid;
+        public uint pid;
+    }
+
+    /// <summary>
+    /// PROPSPEC 是个 union（PROPID 或 LPOLESTR），在 x64 上必须按 8 字节指针对齐后才与原生布局一致。
+    /// 这里用 IntPtr 承载 union，保证 32/64 位下的尺寸都正确 —— 布局写错会直接踩内存。
+    /// </summary>
+    [StructLayout(LayoutKind.Sequential)]
+    private struct PROPSPEC
+    {
+        public uint ulKind;
+        public IntPtr unionValue;
+    }
+
+    [StructLayout(LayoutKind.Explicit)]
+    private struct PROPVARIANT
+    {
+        [FieldOffset(0)] public ushort vt;
+        [FieldOffset(8)] public IntPtr pointerValue;
     }
 
     [ComImport]

@@ -1,0 +1,40 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    UI 布局审计探针（无 GUI）。
+
+    本环境不允许拉起 GUI 进程，所以「控件有没有被兄弟盖住 / 有没有被容器裁掉」
+    这类问题没法靠肉眼验收。这里直接复用主程序的 UI 源码（Core / Forms / Ui / MainForm），
+    在**不创建窗口句柄、不显示窗口**的前提下，用 PerformLayout 逼出真实几何，
+    再遍历控件树做三类判定：
+
+      1. 越界   子控件的右/下边缘超出父容器客户区（会被裁掉）
+      2. 重叠   同一容器内的兄弟控件矩形相交（会被盖住）
+      3. 裁切   AutoSize 文本 / 按钮文字所需宽度超过可用宽度
+
+    不引入 src\AppClone\Program.cs（它有自己的 Main，会与探针冲突）；
+    MainForm.cs 必须引入 —— Forms 下的窗体都引用 MainForm.TryAppIcon()。
+
+    运行方式：scripts\probe.cmd 的第 4 步。
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>UiAudit</AssemblyName>
+    <RootNamespace>UiAudit</RootNamespace>
+    <StartupObject>UiAudit.Program</StartupObject>
+    <NoWarn>$(NoWarn);WFO1000;WFO2000;CS8604;CS8600</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="..\..\src\AppClone\Ui.cs" Link="Ui.cs" />
+    <Compile Include="..\..\src\AppClone\MainForm.cs" Link="MainForm.cs" />
+    <Compile Include="..\..\src\AppClone\Core\**\*.cs" LinkBase="Core" />
+    <Compile Include="..\..\src\AppClone\Forms\**\*.cs" LinkBase="Forms" />
+    <Compile Include="..\..\src\Shared\**\*.cs" LinkBase="Shared" />
+  </ItemGroup>
+
+</Project>

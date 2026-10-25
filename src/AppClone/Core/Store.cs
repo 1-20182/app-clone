@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Text.RegularExpressions;
 
 namespace AppClone.Core;
 
@@ -34,6 +35,30 @@ public class CloneEntry
 
     // ↓ 增量 1.2.0：启动热键（如 "Ctrl+Alt+1"，空=未绑定）
     public string Hotkey { get; set; } = "";
+
+    // ↓ P1：快捷方式伪装（Disguise.All 的 Key；""=正常显示）
+    public string Disguise { get; set; } = "";
+
+    // ↓ P2：崩溃守护 —— 启动后早退崩溃时自动重启（最多 2 次）
+    public bool Guard { get; set; }
+
+    // ↓ P3：冻结 —— 禁止启动（右键「冻结分身」切换），运行中的实例会被先结束
+    public bool Frozen { get; set; }
+
+    // ↓ P3：网络代理 —— 只注入标准代理环境变量（Chromium / Electron / .NET 等遵守者生效）
+    public string Proxy { get; set; } = "";
+
+    // ↓ P4：随软件启动时自动运行该分身
+    public bool AutoStart { get; set; }
+
+    // ↓ P4：每天定时启动 "HH:mm"（空=不定时；依赖本软件常驻运行或托盘常驻）
+    public string AutoStartAt { get; set; } = "";
+
+    // ↓ 增量 1.3.0（F2）：创建分身那一刻的「源应用基线」，用于检测源应用升级 / 被替换。
+    //   三项均带默认值 —— 老 apps.json 反序列化后为空，由 SourceWatch 静默回填，不产生误报。
+    public string SourceVersionAtCreate { get; set; } = "";
+    public string SourceExeMtimeAtCreate { get; set; } = "";
+    public long SourceExeSizeAtCreate { get; set; }
 }
 
 public class StoreModel
@@ -59,19 +84,38 @@ public class Store
     {
         var s = new Store();
         Paths.EnsureAll();
-        try
+
+        // 主文件读取：失败时保留 .corrupt 供人工找回，随后优先尝试 .bak 恢复
+        bool mainOk = false;
+        if (File.Exists(Paths.StoreFile))
         {
-            if (File.Exists(Paths.StoreFile))
+            try
             {
                 var json = File.ReadAllText(Paths.StoreFile);
                 s.Model = JsonSerializer.Deserialize<StoreModel>(json, JsonOpts) ?? new StoreModel();
+                mainOk = true;
+            }
+            catch
+            {
+                try { File.Copy(Paths.StoreFile, Paths.StoreFile + ".corrupt", true); } catch { }
             }
         }
-        catch
+
+        if (!mainOk)
         {
-            // 配置损坏时以空仓库启动，避免崩溃；旧文件保留为备份
-            try { File.Copy(Paths.StoreFile, Paths.StoreFile + ".bak", true); } catch { }
-            s.Model = new StoreModel();
+            // 主文件缺失或损坏：尝试 .bak 恢复；.bak 也不可用才以空仓库启动
+            try
+            {
+                if (File.Exists(Paths.StoreFile + ".bak"))
+                {
+                    var bak = File.ReadAllText(Paths.StoreFile + ".bak");
+                    s.Model = JsonSerializer.Deserialize<StoreModel>(bak, JsonOpts) ?? new StoreModel();
+                }
+            }
+            catch
+            {
+                s.Model = new StoreModel();
+            }
         }
         return s;
     }
@@ -82,7 +126,29 @@ public class Store
         {
             Paths.EnsureAll();
             var json = JsonSerializer.Serialize(Model, JsonOpts);
-            File.WriteAllText(Paths.StoreFile, json);
+            var tmp = Paths.StoreFile + ".tmp";
+            var bak = Paths.StoreFile + ".bak";
+            try
+            {
+                // 原子写：先落 .tmp，成功后 Replace（同目录同卷）交换主文件并把旧主文件滚动为 .bak
+                File.WriteAllText(tmp, json);
+                if (File.Exists(Paths.StoreFile))
+                {
+                    File.Replace(tmp, Paths.StoreFile, bak);
+                }
+                else
+                {
+                    // 首次写入无主文件：直接提交，并同步生成一份 .bak
+                    File.Move(tmp, Paths.StoreFile, overwrite: true);
+                    try { File.Copy(Paths.StoreFile, bak, true); } catch { }
+                }
+            }
+            catch
+            {
+                // 失败时清理残留 tmp；主文件保持上一份好数据，异常继续上抛（与原语义一致）
+                try { if (File.Exists(tmp)) File.Delete(tmp); } catch { }
+                throw;
+            }
         }
     }
 
@@ -147,6 +213,7 @@ public class Store
         for (int i = 0; i < n; i++)
         {
             var c = new CloneEntry { Name = $"分身 {i + 1}", DeepIsolation = deep, DeviceClone = dev };
+            SourceWatch.Stamp(app, c);   // F2：记录创建时刻的源应用基线
             Model.Clones[app.Id].Add(c);
             clones.Add(c);
         }
@@ -179,11 +246,14 @@ public class Store
     public void RemoveApp(string appId)
     {
         var app = FindApp(appId);
+        int cloneCount = app == null ? 0 : ClonesOf(appId).Count;
         Model.Apps.RemoveAll(a => a.Id == appId);
         Model.Clones.Remove(appId);
         Save();
         if (app != null)
         {
+            // F5：删除应用是不可逆的破坏性操作，必须留痕（谁、何时、删掉了什么）
+            Log.Rollback("store", $"移除应用「{app.Name}」及其 {cloneCount} 个分身数据（{app.ExePath}）", appId);
             try { Directory.Delete(Paths.AppProfileDir(appId), true); } catch { }
             try { File.Delete(Path.Combine(Paths.IconsDir, appId + ".png")); } catch { }
         }
@@ -192,9 +262,20 @@ public class Store
     public CloneEntry AddClone(string appId)
     {
         var list = Model.Clones.TryGetValue(appId, out var l) ? l : Model.Clones[appId] = new List<CloneEntry>();
-        var clone = new CloneEntry { Name = $"分身 {list.Count + 1}" };
+        // 取现存最大序号 +1（删除中间分身后用 Count+1 会重名）
+        int max = 0;
+        foreach (var c in list)
+        {
+            var m = Regex.Match(c.Name, @"^分身 (\d+)$");
+            if (m.Success && int.TryParse(m.Groups[1].Value, out int n) && n > max) max = n;
+        }
+        string name = $"分身 {max + 1}";
+        while (list.Any(c => c.Name == name)) { max++; name = $"分身 {max + 1}"; }
+        var clone = new CloneEntry { Name = name };
+        SourceWatch.Stamp(FindApp(appId), clone);   // F2：记录创建时刻的源应用基线
         list.Add(clone);
         Save();
+        Log.Info("store", $"新建分身「{clone.Name}」", appId, clone.Id, "create");
         return clone;
     }
 
@@ -225,10 +306,17 @@ public class Store
 
     public void RemoveClone(string appId, string cloneId)
     {
+        var clone = FindClone(appId, cloneId);
         if (Model.Clones.TryGetValue(appId, out var list))
             list.RemoveAll(c => c.Id == cloneId);
         Save();
+        // F5：回滚留痕 —— 记下「删了谁的分身、连带清掉了哪些数据与注册表键」
+        // 注：注册表清理走 RegClone（隔离核心，冻结不改），此处只描述其结果。
+        Log.Rollback("store",
+            $"删除分身「{clone?.Name ?? cloneId}」：数据目录 {Paths.CloneDir(appId, cloneId)}" +
+            "、注册表私有键（若为深度隔离）均已清理",
+            appId, cloneId);
         try { Directory.Delete(Paths.CloneDir(appId, cloneId), true); } catch { }
-        RegClone.DeleteCloneRoot(appId, cloneId);
+        try { RegClone.DeleteCloneRoot(appId, cloneId); } catch { }
     }
 }

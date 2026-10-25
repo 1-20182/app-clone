@@ -1,0 +1,32 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    MainForm 高 DPI 几何复现台（无 GUI，诊断用）。
+
+    背景：v1.4.1 已装用户在 150% 缩放真机上截图显示——顶栏按钮被裁、空态卡片文字截断、
+    侧栏不可见。本台以与真实启动完全相同的参数（PerMonitorV2 + new MainForm + 句柄 +
+    AutoScale + PerformLayout）走一遍生命周期，然后倾倒控件树几何，定位漏网之鱼。
+
+    不显示窗口：只强制创建句柄（不 Show），与探针同口径。
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>MainGeom</AssemblyName>
+    <RootNamespace>MainGeom</RootNamespace>
+    <StartupObject>MainGeom.Program</StartupObject>
+    <NoWarn>$(NoWarn);WFO1000;WFO2000;CS8604;CS8600</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="..\..\src\AppClone\Ui.cs" Link="Ui.cs" />
+    <Compile Include="..\..\src\AppClone\MainForm.cs" Link="MainForm.cs" />
+    <Compile Include="..\..\src\AppClone\Core\**\*.cs" LinkBase="Core" />
+    <Compile Include="..\..\src\AppClone\Forms\**\*.cs" LinkBase="Forms" />
+    <Compile Include="..\..\src\Shared\**\*.cs" LinkBase="Shared" />
+  </ItemGroup>
+
+</Project>

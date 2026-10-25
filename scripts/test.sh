@@ -4,6 +4,10 @@
 set -u
 ROOT="/d/fenshen"
 TD="$ROOT/test"; DATA="$TD/data"; OUT="$TD/out"
+# OUTW = OUT 的 Windows 形式。凡是要把路径**作为参数直传给原生 exe**（selftest.exe 等）的场合，
+# 必须用这个，不能用 POSIX 的 $OUT —— 原生程序不认识 /d/fenshen/...，
+# selftest 打不开输出文件就会静默回退成「只打 stdout」，断言随之误判为失败。
+OUTW='D:\fenshen\test\out'
 export FENSHEN_DATA_DIR='D:\fenshen\test\data'
 EXE="$ROOT/dist/AppClone.exe"
 SELFTEST="$ROOT/dist/sandbox/selftest.exe"
@@ -18,7 +22,9 @@ wait_file() { # wait_file <path> <timeout_x100ms>
 }
 
 echo "== 准备测试数据 =="
-rm -rf "$TD"; mkdir -p "$OUT" "$DATA"
+# 只清 data / out 两个运行态目录：$TD 下还有 test\probe（F1-F6 逻辑回归探针的工程目录），
+# 整目录 rm -rf 会连探针源码一起删掉。
+rm -rf "$DATA" "$OUT"; mkdir -p "$OUT" "$DATA"
 # 清理上一次运行可能残留的注册表状态（profiles 已随 $TD 删除，但注册表根不会）
 MSYS_NO_PATHCONV=1 reg delete 'HKCU\Software\FenShenSandbox' /f >/dev/null 2>&1
 MSYS_NO_PATHCONV=1 reg delete 'HKCU\Software\FenShenSelfTest' /f >/dev/null 2>&1
@@ -105,10 +111,11 @@ fi
 # =====================================================================
 echo "== 测试 3：互斥体改名实现多开（深度隔离） =="
 # 对照组：未注入时，重叠运行的第二实例应报 SECOND
+# 注意参数用 $OUTW（Windows 路径）：selftest.exe 是原生程序，POSIX 路径它打不开。
 rm -f "$OUT/ctl.txt"
-"$SELFTEST" ctlA "$OUT/ctl.txt" &
+"$SELFTEST" ctlA "$OUTW\\ctl.txt" &
 sleep 0.3
-"$SELFTEST" ctlB "$OUT/ctl.txt"
+"$SELFTEST" ctlB "$OUTW\\ctl.txt"
 sleep 3.5
 first_ctl=$(grep -c "MUTEX: FIRST" "$OUT/ctl.txt" || true)
 second_ctl=$(grep -c "MUTEX: SECOND" "$OUT/ctl.txt" || true)

@@ -31,6 +31,7 @@ public static class AppIcons
         try
         {
             Paths.EnsureAll();
+            // bmp 是本方法临时对象：Put 内部已克隆为缓存独占副本，故此处 using 释放安全
             using var bmp = ExtractBitmap(exePath, size) ?? ExtractBitmap(exePath, Math.Max(16, size / 2));
             if (bmp == null) return false;
             bmp.Save(IconPath(appId), ImageFormat.Png);
@@ -46,6 +47,15 @@ public static class AppIcons
         if (Extract(appId, exePath, size)) return true;
         try { Thread.Sleep(60); } catch { }
         return Extract(appId, exePath, size);
+    }
+
+    /// <summary>
+    /// 渲染指定尺寸的应用图标位图（不落盘、不入缓存）。调用方负责 Dispose。
+    /// F6 角标图标（BadgeIcon）与需要自定义底图的场景使用。
+    /// </summary>
+    public static Bitmap? RenderIcon(string exePath, int size)
+    {
+        try { return ExtractBitmap(exePath, size); } catch { return null; }
     }
 
     private static Bitmap? ExtractBitmap(string exePath, int size)
@@ -66,9 +76,11 @@ public static class AppIcons
     }
 
     /// <summary>同步加载（先查内存缓存，再读磁盘 PNG 副本，避免文件被锁）。</summary>
+    /// <remarks>返回克隆，调用方可安全 Dispose；缓存对象由缓存独占管理。</remarks>
     public static Image? Load(string appId)
     {
-        if (_memCache.TryGetValue(appId, out var hit)) return hit;
+        var hit = GetCached(appId);
+        if (hit != null) return hit;
         var p = IconPath(appId);
         if (!File.Exists(p)) return null;
         try
@@ -77,42 +89,58 @@ public static class AppIcons
             using var ms = new MemoryStream();
             fs.CopyTo(ms);
             ms.Position = 0;
-            var img = Image.FromStream(ms);
-            Put(appId, img);
-            return img;
+            // 先解码再用 new Bitmap 脱钩流：流随 using 关闭后 GDI+ 延迟解码不会踩已释放资源
+            using var decoded = Image.FromStream(ms);
+            Put(appId, decoded);   // Put 内部克隆，decoded 仍由本方法 using 释放
+            return GetCached(appId);
         }
         catch { return null; }
     }
 
-    public static Image? GetCached(string key) => _memCache.TryGetValue(key, out var i) ? i : null;
+    /// <summary>命中缓存返回克隆（调用方可安全 Dispose）；未命中返回 null。</summary>
+    public static Image? GetCached(string key) => _memCache.TryGetValue(key, out var i) ? CloneOf(i) : null;
+
+    private static Bitmap? CloneOf(Image img)
+    {
+        try { return new Bitmap(img); }
+        catch { return null; }
+    }
     public static void PutCache(string key, Image img) => Put(key, img);
 
     /// <summary>异步加载：命中内存缓存立即回调；未命中后台提取 32px 仅用于发现页，完成后回调更新单卡。</summary>
+    /// <remarks>回调收到的是克隆，调用方可安全 Dispose。</remarks>
     public static void LoadAsync(string key, string exePath, int size, Action<Image?> onReady)
     {
-        if (_memCache.TryGetValue(key, out var hit)) { onReady(hit); return; }
+        var hit = GetCached(key);
+        if (hit != null) { onReady(hit); return; }
         Task.Run(() =>
         {
             try
             {
                 var bmp = ExtractBitmap(exePath, size) ?? ExtractBitmap(exePath, Math.Max(16, size / 2));
                 if (bmp == null) { onReady(null); return; }
-                Put(key, bmp);
-                onReady(bmp);
+                Put(key, bmp);   // Put 内部克隆，临时提取对象由本方法释放
+                bmp.Dispose();
+                onReady(GetCached(key));
             }
             catch { onReady(null); }
         });
     }
 
+    /// <summary>入库：克隆为缓存独占 Bitmap 后入缓存；替换/淘汰时释放的均为缓存自有对象。</summary>
     private static void Put(string key, Image img)
     {
         lock (_lruLock)
         {
-            if (_memCache.TryGetValue(key, out var old) && !ReferenceEquals(old, img))
+            Bitmap copy;
+            try { copy = new Bitmap(img); }
+            catch { return; }   // 克隆失败则不入缓存，也不影响调用方
+            if (_memCache.TryGetValue(key, out var old))
             {
+                // old 是缓存独占对象（UI 只持有克隆），可安全释放
                 try { old.Dispose(); } catch { }
             }
-            _memCache[key] = img;
+            _memCache[key] = copy;
             _lru.Remove(key);
             _lru.AddLast(key);
             while (_lru.Count > MaxMemCache)
@@ -122,6 +150,7 @@ public static class AppIcons
                 _lru.RemoveFirst();
                 if (_memCache.TryRemove(first.Value, out var evicted))
                 {
+                    // 淘汰的是缓存独占对象，外部克隆与它互不关联
                     try { evicted.Dispose(); } catch { }
                 }
             }

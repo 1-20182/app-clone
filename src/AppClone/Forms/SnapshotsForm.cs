@@ -20,33 +20,41 @@ public class SnapshotsForm : Form
         Size = new Size(460, 380);
         MinimumSize = new Size(380, 280);
         StartPosition = FormStartPosition.CenterParent;
+        // PerMonitorV2：构造期逻辑像素交给 AutoScale 整树放大（高 DPI 下文本被裁的修复）
+        AutoScaleMode = AutoScaleMode.Dpi;
+        AutoScaleDimensions = new SizeF(96F, 96F);
         BackColor = Ui.BgOf();
         Font = Ui.Font(9.5F);
         Icon = MainForm.TryAppIcon();
 
+        var headerPanel = new Panel { Dock = DockStyle.Top, Height = 44, BackColor = Ui.BgOf() };
         var header = Ui.Label("该分身的快照（纯目录复制，不压缩）", 9.5F, true, Ui.TextPrimaryOf());
-        header.Location = new Point(20, 16);
+        header.Location = new Point(20, 14);
+        headerPanel.Controls.Add(header);
 
         _list = new FlowLayoutPanel
         {
             Dock = DockStyle.Fill, FlowDirection = FlowDirection.TopDown, WrapContents = false,
             AutoScroll = true, BackColor = Ui.BgOf(), Padding = new Padding(12, 8, 12, 8),
-            Location = new Point(0, 44), Size = new Size(460, 280),
         };
 
         _empty = Ui.Label("还没有快照。\n在分身菜单选择「重置分身数据（先存快照）」即可创建。",
             9.5F, false, Ui.TextSecondaryOf());
-        _empty.Location = new Point(24, 70);
+        _empty.AutoSize = false;
+        _empty.Dock = DockStyle.Fill;
+        _empty.TextAlign = ContentAlignment.MiddleCenter;
         _empty.Visible = false;
 
+        var footPanel = new Panel { Dock = DockStyle.Bottom, Height = 52, BackColor = Ui.BgOf(), Padding = new Padding(20, 10, 20, 10) };
         var btnNew = new AppleButton("＋ 立即创建快照", AppleButton.Style.Filled, 9F)
-        { Size = new Size(130, 32), Anchor = AnchorStyles.Bottom | AnchorStyles.Left, Location = new Point(20, Height - 50) };
+        { Size = new Size(130, 32), Dock = DockStyle.Left };
         btnNew.Click += (_, _) => CreateNow();
 
-        Controls.Add(header);
+        // 停靠顺序：Fill 先加入（最后被布局，吃掉剩余空间）；Top/Bottom 后加入
         Controls.Add(_list);
         Controls.Add(_empty);
-        Controls.Add(btnNew);
+        Controls.Add(headerPanel);
+        Controls.Add(footPanel);
         Shown += (_, _) => { Ui.RoundWindow(this); RefreshList(); };
     }
 
@@ -55,6 +63,7 @@ public class SnapshotsForm : Form
         _list.SuspendLayout();
         _list.Controls.Clear();
         var stamps = Snapshot.ListStamps(_app.Id, _clone.Id);
+        _list.Visible = stamps.Count > 0;
         _empty.Visible = stamps.Count == 0;
         foreach (var s in stamps)
             _list.Controls.Add(MakeCard(s));
@@ -85,6 +94,15 @@ public class SnapshotsForm : Form
         card.Controls.Add(hint);
         card.Controls.Add(btnRestore);
         card.Controls.Add(btnDel);
+
+        // 运行期动态创建（RefreshList → MakeCard）：不参与窗体 AutoScale，高 DPI 下自行缩放；
+        // 宽度由列表实际宽度决定（物理像素），放在缩放之后重设，右侧锚定按钮随之跟随
+        if (IsHandleCreated)
+        {
+            float f = Ui.DpiScaleOf(this);
+            if (Math.Abs(f - 1f) > 0.001f) card.Scale(new SizeF(f, f));
+        }
+        card.Width = Math.Max(Ui.S(this, 220), _list.ClientSize.Width - Ui.S(this, 24));
         return card;
     }
 

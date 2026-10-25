@@ -8,7 +8,7 @@
     <Nullable>enable</Nullable>
     <AssemblyName>AppCloneSetup</AssemblyName>
     <RootNamespace>AppCloneSetup</RootNamespace>
-    <Version>1.0.0</Version>
+    <Version>1.4.1</Version>
     <Product>应用分身安装程序</Product>
     <AssemblyTitle>应用分身安装程序</AssemblyTitle>
     <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
